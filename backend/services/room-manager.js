@@ -116,7 +116,13 @@ class RoomManager {
       seatPosition: -1,
       isReady: false,
       chips: player.chips ?? room.initialChips,
+      isAI: Boolean(player.isAI),
     });
+
+    const currentHost = room.players.find(p => p.playerId === room.hostId);
+    if (!player.isAI && (!currentHost || this._isAIPlayer(currentHost))) {
+      room.hostId = playerId;
+    }
 
     player.currentRoom = roomId;
     player.seatPosition = -1;
@@ -146,7 +152,7 @@ class RoomManager {
 
     // Update host if host leaves - pick next seated player if possible
     if (room.hostId === playerId) {
-      const nextHost = room.players.find(p => p.seatPosition >= 0) || room.players[0];
+      const nextHost = this._selectNextHost(room.players);
       room.hostId = nextHost ? nextHost.playerId : null;
     }
 
@@ -273,7 +279,12 @@ class RoomManager {
   async startGame(roomId, hostId) {
     const room = await store.getRoom(roomId);
     if (!room) return { success: false, error: 'Room not found' };
-    if (room.hostId !== hostId) return { success: false, error: 'Only host can start' };
+    if (!this._canControlRoom(room, hostId)) {
+      return { success: false, error: 'Only host can start' };
+    }
+    if (room.hostId !== hostId) {
+      room.hostId = hostId;
+    }
     if (!(await this.canStart(roomId))) {
       return { success: false, error: 'Not all seated players are ready' };
     }
@@ -326,6 +337,56 @@ class RoomManager {
     return bots;
   }
 
+  /**
+   * Add a single AI bot to the first open seat.
+   */
+  async addAI(roomId, aiManager) {
+    const room = await store.getRoom(roomId);
+    if (!room) return { success: false, error: 'Room not found' };
+    if (!room.allowAI) return { success: false, error: 'AI is disabled for this room' };
+    if (room.status !== 'waiting') return { success: false, error: 'Game in progress' };
+
+    const seatedCount = room.players.filter(p => p.seatPosition >= 0).length;
+    if (seatedCount >= room.maxPlayers) {
+      return { success: false, error: 'Room is full' };
+    }
+
+    const position = room.seats.findIndex((pid, idx) => !pid && idx < room.maxPlayers);
+    if (position === -1) {
+      return { success: false, error: 'No open seat' };
+    }
+
+    const bot = await aiManager.createBot(roomId, position);
+    if (!bot) return { success: false, error: 'Failed to add AI' };
+
+    return { success: true, bot };
+  }
+
+  /**
+   * Remove an AI bot from a specific seat in a waiting room.
+   */
+  async removeAI(roomId, position, aiManager) {
+    const room = await store.getRoom(roomId);
+    if (!room) return { success: false, error: 'Room not found' };
+    if (room.status !== 'waiting') return { success: false, error: 'Game in progress' };
+    if (!Number.isInteger(position) || position < 0 || position >= room.maxPlayers) {
+      return { success: false, error: 'Invalid seat' };
+    }
+
+    const playerId = room.seats[position];
+    if (!playerId) return { success: false, error: 'Seat is empty' };
+
+    const player = room.players.find(p => p.playerId === playerId);
+    if (!this._isAIPlayer(player)) {
+      return { success: false, error: 'Seat is not an AI player' };
+    }
+
+    const removed = await aiManager.removeBot(roomId, position);
+    if (!removed) return { success: false, error: 'Failed to remove AI' };
+
+    return { success: true, position };
+  }
+
   // ─── Private helpers ───────────────────────────────────────────
 
   async _generateRoomId() {
@@ -368,6 +429,7 @@ class RoomManager {
         seatPosition: p.seatPosition,
         isReady: p.isReady,
         chips: p.chips,
+        isAI: this._isAIPlayer(p),
       })),
     };
   }
@@ -387,6 +449,7 @@ class RoomManager {
             isReady: player.isReady,
             chips: player.chips,
             status: 'occupied',
+            isAI: this._isAIPlayer(player),
           });
         }
       } else {
@@ -394,6 +457,33 @@ class RoomManager {
       }
     }
     return seats;
+  }
+
+  _selectNextHost(players) {
+    return players.find(p => p.seatPosition >= 0 && !this._isAIPlayer(p))
+      || players.find(p => !this._isAIPlayer(p))
+      || players.find(p => p.seatPosition >= 0)
+      || players[0]
+      || null;
+  }
+
+  _canControlRoom(room, playerId) {
+    if (room.hostId === playerId) return true;
+
+    const requester = room.players.find(p => p.playerId === playerId);
+    if (!requester || requester.seatPosition < 0 || this._isAIPlayer(requester)) {
+      return false;
+    }
+
+    const currentHost = room.players.find(p => p.playerId === room.hostId);
+    return !currentHost || this._isAIPlayer(currentHost);
+  }
+
+  _isAIPlayer(player) {
+    return Boolean(player && (
+      player.isAI ||
+      (typeof player.nickname === 'string' && player.nickname.startsWith('Bot-'))
+    ));
   }
 }
 

@@ -325,6 +325,5 @@ const LobbyView = (function() {
     show,
     hide,
     loadRooms,
-    ensureGuestPlayer: App.ensureGuestPlayer,
   };
 })();

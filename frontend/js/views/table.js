@@ -9,6 +9,7 @@ const TableView = (function() {
   let roomData = null;
   let myPosition = null;
   let timerComponent = null;
+  let timerContainerEl = null;
   let seatElements = {};
 
   // 环形布局位置（相对于桌面的百分比）
@@ -70,6 +71,7 @@ const TableView = (function() {
     document.getElementById('pot-display').innerHTML = '';
     document.getElementById('my-hole-cards').innerHTML = '';
     document.getElementById('action-bar').style.display = 'none';
+    cleanupTimer();
 
     // 请求完整状态
     setTimeout(() => {
@@ -80,10 +82,7 @@ const TableView = (function() {
   function hide() {
     document.getElementById('table-view').style.display = 'none';
     ActionsComponent.hide();
-    if (timerComponent) {
-      timerComponent.destroy();
-      timerComponent = null;
-    }
+    cleanupTimer();
   }
 
   // ============================================================
@@ -128,32 +127,23 @@ const TableView = (function() {
 
   function onGameDealt(data) {
     // data: { cards, position }
-    if (data.position === myPosition && data.cards) {
-      const container = document.getElementById('my-hole-cards');
-      container.innerHTML = '';
-      data.cards.forEach((card, i) => {
-        const el = CardComponent.render(card, { animate: true });
-        el.style.animationDelay = `${i * 0.2}s`;
-        container.appendChild(el);
-      });
+    if (data.position != null && myPosition == null) {
+      myPosition = data.position;
+    }
+    if (data.cards && (myPosition == null || data.position === myPosition)) {
+      renderMyHoleCards(data.cards, { animate: true });
     }
   }
 
   function onGameCommunity(data) {
     // data: { cards, round }
     const container = document.getElementById('community-cards');
-    if (data.round === 'flop') {
-      container.innerHTML = '';
-      data.cards.forEach((card, i) => {
-        const el = CardComponent.render(card, { animate: true });
-        el.style.animationDelay = `${i * 0.15}s`;
-        container.appendChild(el);
-      });
-    } else {
-      data.cards.forEach(card => {
-        container.appendChild(CardComponent.render(card, { animate: true }));
-      });
-    }
+    container.innerHTML = '';
+    data.cards.forEach((card, i) => {
+      const el = CardComponent.render(card, { animate: true });
+      el.style.animationDelay = `${i * 0.15}s`;
+      container.appendChild(el);
+    });
   }
 
   function onGameTurn(data) {
@@ -167,42 +157,41 @@ const TableView = (function() {
       seatEl.classList.add('seat-turn');
     }
 
-    if (timerComponent) {
-      timerComponent.destroy();
-      timerComponent = null;
-    }
+    cleanupTimer();
 
     if (data.timeoutAt) {
       const timerContainer = document.createElement('div');
       timerContainer.className = 'seat-timer-container';
-      timerContainer.style.position = 'absolute';
-
-      const pos = SEAT_POSITIONS[data.position] || SEAT_POSITIONS[0];
-      timerContainer.style.left = pos.left;
-      timerContainer.style.top = pos.top;
-      timerContainer.style.transform = pos.transform;
-
-      document.getElementById('seats-ring').appendChild(timerContainer);
+      if (seatEl) {
+        seatEl.appendChild(timerContainer);
+      } else {
+        document.getElementById('seats-ring').appendChild(timerContainer);
+      }
 
       timerComponent = TimerComponent.create();
       timerComponent.render(timerContainer, { duration: 30000, warning: 10000 });
       timerComponent.start(data.timeoutAt);
+      timerContainerEl = timerContainer;
     }
 
-    // If it's my turn, show valid actions
-    if (data.position === myPosition && data.validActions) {
-      const context = {
-        currentBet: data.currentBet || 0,
-        minRaise: data.minRaise || 0,
-        totalPot: data.totalPot || 0,
-        myChips: gameState?.players?.find(p => p.seatPosition === myPosition)?.chips || 0,
-      };
-      ActionsComponent.show(data.validActions, context);
-    } else {
-      ActionsComponent.hide();
-      // Show AI/human thinking indicator for current actor (not me)
-      showThinkingIndicator(data.position);
+    // The server sends a private turn event with validActions to the actor,
+    // followed by a public turn event without actions to the whole room.
+    if (data.position === myPosition) {
+      if (data.validActions) {
+        const context = {
+          currentBet: data.currentBet || 0,
+          minRaise: data.minRaise || 0,
+          totalPot: data.totalPot || 0,
+          myChips: gameState?.players?.find(p => p.seatPosition === myPosition)?.chips || 0,
+        };
+        ActionsComponent.show(data.validActions, context);
+      }
+      return;
     }
+
+    ActionsComponent.hide();
+    // Show AI/human thinking indicator for current actor (not me)
+    showThinkingIndicator(data.position);
   }
 
   function showThinkingIndicator(position) {
@@ -228,6 +217,20 @@ const TableView = (function() {
         setTimeout(() => thinkingEl.remove(), 300);
       }
     }, 4000);
+  }
+
+  function cleanupTimer() {
+    if (timerComponent) {
+      timerComponent.destroy();
+      timerComponent = null;
+    }
+    if (timerContainerEl) {
+      timerContainerEl.remove();
+      timerContainerEl = null;
+    }
+    document.querySelectorAll('.seat-timer-container').forEach(el => {
+      if (!el.querySelector('.timer')) el.remove();
+    });
   }
 
   function onGameAction(data) {
@@ -322,7 +325,14 @@ const TableView = (function() {
   function onGameStateFull(data) {
     // 完整游戏状态（用于重连）
     gameState = data.gameState || data;
-    if (gameState.players) renderSeatsFromGameState(gameState);
+    if (gameState.players) {
+      const myPlayer = gameState.players.find(p => p.playerId === (App.player && App.player.id));
+      if (myPlayer) {
+        myPosition = myPlayer.seatPosition;
+        renderMyHoleCards(myPlayer.holeCards);
+      }
+      renderSeatsFromGameState(gameState);
+    }
     if (gameState.communityCards) {
       const container = document.getElementById('community-cards');
       container.innerHTML = '';
@@ -334,6 +344,20 @@ const TableView = (function() {
       const potDisplay = document.getElementById('pot-display');
       PotComponent.mount(potDisplay, gameState.pots.mainPot, gameState.pots.sidePots);
     }
+  }
+
+  function renderMyHoleCards(cards, options = {}) {
+    if (!cards || cards.length !== 2) return;
+
+    const container = document.getElementById('my-hole-cards');
+    container.innerHTML = '';
+    cards.forEach((card, i) => {
+      const el = CardComponent.render(card, { animate: options.animate === true });
+      if (options.animate) {
+        el.style.animationDelay = `${i * 0.2}s`;
+      }
+      container.appendChild(el);
+    });
   }
 
   function onSocketError(data) {

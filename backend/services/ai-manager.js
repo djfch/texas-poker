@@ -153,7 +153,7 @@ class AIManager {
           ? gameState.currentBet + gameState.minRaise
           : gameState.minRaise;
         amount = Math.min(minRaiseTotal, player.chips);
-      } else if (player.chips <= toCall || player.chips < gameState.bigBlind * 3) {
+      } else if (player.chips <= toCall || player.chips < (gameState.bigBlind || gameState.minRaise || 20) * 3) {
         action = 'allin';
       } else {
         action = 'raise';
@@ -166,7 +166,40 @@ class AIManager {
       amount = 0;
     }
 
-    return { type: action, amount: amount > 0 ? amount : undefined, delayMs: this._randomDelay() };
+    return this._coerceToLegalDecision(
+      { type: action, amount: amount > 0 ? amount : undefined },
+      gameState,
+      player
+    );
+  }
+
+  _coerceToLegalDecision(decision, gameState, player) {
+    const legal = gameState.legal_actions;
+    if (!legal || !Array.isArray(legal.actions) || legal.actions.length === 0) {
+      return { ...decision, delayMs: this._randomDelay() };
+    }
+
+    if (legal.actions.includes(decision.type)) {
+      if (decision.type === 'raise') {
+        const amount = Math.min(
+          Math.max(Number(decision.amount) || legal.min_raise || 0, legal.min_raise || 0),
+          legal.max_raise || Number(decision.amount) || 0
+        );
+        return { type: 'raise', amount, delayMs: this._randomDelay() };
+      }
+      return { ...decision, amount: decision.amount, delayMs: this._randomDelay() };
+    }
+
+    if (legal.actions.includes('check')) {
+      return { type: 'check', delayMs: this._randomDelay() };
+    }
+    if (legal.actions.includes('call')) {
+      return { type: 'call', delayMs: this._randomDelay() };
+    }
+    if (legal.actions.includes('allin')) {
+      return { type: 'allin', delayMs: this._randomDelay() };
+    }
+    return { type: 'fold', delayMs: this._randomDelay() };
   }
 
   _randomDelay() {

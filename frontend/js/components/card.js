@@ -18,6 +18,13 @@ const CardComponent = (function() {
     spades: 'black',
   };
 
+  const SUIT_BY_SYMBOL = {
+    '\u2665': 'hearts',
+    '\u2666': 'diamonds',
+    '\u2663': 'clubs',
+    '\u2660': 'spades',
+  };
+
   /**
    * Render a single card
    * @param {Object|null} card - { suit, rank } or null for back
@@ -26,6 +33,7 @@ const CardComponent = (function() {
    */
   function render(card, options = {}) {
     const el = document.createElement('div');
+    const normalizedCard = normalizeCard(card);
     const isSmall = options.small === true;
     const isHidden = options.hidden === true;
     const animate = options.animate === true;
@@ -35,7 +43,7 @@ const CardComponent = (function() {
     if (animate) el.classList.add('card-animate');
     if (options.className) el.classList.add(options.className);
 
-    if (!card || isHidden) {
+    if (!normalizedCard || isHidden) {
       // Card back
       el.classList.add('card-back');
       el.innerHTML = `
@@ -43,8 +51,8 @@ const CardComponent = (function() {
       `;
     } else {
       // Card front
-      const suit = card.suit;
-      const rank = card.rank;
+      const suit = normalizedCard.suit;
+      const rank = normalizedCard.rank;
       const symbol = SUIT_SYMBOLS[suit] || '';
       const colorClass = SUIT_COLORS[suit] === 'red' ? 'card-red' : 'card-black';
 
@@ -74,6 +82,20 @@ const CardComponent = (function() {
     }
 
     return el;
+  }
+
+  function normalizeCard(card) {
+    if (!card) return null;
+    if (typeof card === 'object') return card;
+    if (typeof card !== 'string') return null;
+
+    const match = card.match(/^(10|[2-9JQKA])([\u2665\u2666\u2663\u2660])$/u);
+    if (!match) return null;
+
+    return {
+      rank: match[1],
+      suit: SUIT_BY_SYMBOL[match[2]],
+    };
   }
 
   /**

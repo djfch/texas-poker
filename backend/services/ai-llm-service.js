@@ -108,7 +108,9 @@ Respond ONLY with a JSON object in this exact format:
   "reason": "<short reasoning in Chinese or English>"
 }
 Rules:
+- Choose only from the server-provided legal_actions.actions list.
 - "amount" is required for "raise" and represents the total chips you want to put in this round (must be at least current bet + minimum raise).
+- For "raise", amount must be between legal_actions.min_raise and legal_actions.max_raise.
 - For "fold", "check", "call", "allin", set amount to 0.
 - If you don't have enough chips to call, choose "allin" or "fold".
 - Be concise. Your response must be valid JSON only.`;
@@ -120,7 +122,12 @@ Rules:
     const hole = (player.holeCards || []).join(' ') || 'unknown';
     const toCall = Math.max(0, gameState.currentBet - (player.bet || 0));
 
-    const history = this._formatActionHistory(gameState);
+    const decisionContext = {
+      legal_actions: gameState.legal_actions || {},
+      action_history: gameState.action_history || this._emptyActionHistory(),
+      position_context: gameState.position_context || {},
+      pot_odds: gameState.pot_odds || {},
+    };
 
     return `Current round: ${round}
 Community cards: ${community}
@@ -135,19 +142,19 @@ Total pot: ${gameState.totalPot}
 Players still in hand: ${gameState.players.filter(p => !p.folded).length}
 Your style: ${player.aiStyle || 'balanced'}
 
-Recent actions:
-${history}
+Server-calculated decision context:
+${JSON.stringify(decisionContext, null, 2)}
 
 Decide your action. Return JSON only.`;
   }
 
-  _formatActionHistory(gameState) {
-    // The sanitized state does not yet carry a full action log, so we derive a minimal
-    // history from player bets. Future enhancement: store explicit action history.
-    const active = (gameState.players || [])
-      .filter(p => p.totalBet > 0)
-      .map(p => `- ${p.nickname} (seat ${p.seatPosition}): bet ${p.totalBet}, chips ${p.chips}${p.allIn ? ' ALL-IN' : ''}${p.folded ? ' FOLDED' : ''}`);
-    return active.length ? active.join('\n') : '- no bets yet';
+  _emptyActionHistory() {
+    return {
+      preflop: [],
+      flop: [],
+      turn: [],
+      river: [],
+    };
   }
 
   _parseDecision(raw, gameState, player) {
@@ -158,21 +165,25 @@ Decide your action. Return JSON only.`;
       throw new Error('LLM response is not valid JSON');
     }
 
-    const action = String(parsed.action || '').toLowerCase().trim();
+    let action = String(parsed.action || '').toLowerCase().trim();
     const amount = Number(parsed.amount) || 0;
 
     // Normalize "bet" to "raise" since the engine uses raise uniformly
     if (action === 'bet') {
+      action = 'raise';
       parsed.action = 'raise';
     }
 
-    const validActions = ['fold', 'check', 'call', 'raise', 'allin'];
+    const legal = gameState.legal_actions || {};
+    const validActions = Array.isArray(legal.actions) && legal.actions.length
+      ? legal.actions
+      : ['fold', 'check', 'call', 'raise', 'allin'];
 
     if (!validActions.includes(action)) {
       throw new Error(`LLM returned invalid action: ${action}`);
     }
 
-    const toCall = Math.max(0, gameState.currentBet - (player.bet || 0));
+    const toCall = legal.to_call ?? Math.max(0, gameState.currentBet - (player.bet || 0));
 
     // Validate against game rules
     if (action === 'check' && toCall > 0) {
@@ -184,14 +195,15 @@ Decide your action. Return JSON only.`;
       parsed.amount = 0;
     }
     if (['raise', 'bet'].includes(action)) {
-      const minTotal = gameState.currentBet + gameState.minRaise;
-      if (amount < minTotal && amount < player.chips + (player.bet || 0)) {
+      const minTotal = legal.min_raise ?? (gameState.currentBet + gameState.minRaise);
+      const maxTotal = legal.max_raise ?? (player.chips + (player.bet || 0));
+      if (amount < minTotal && amount < maxTotal) {
         throw new Error(`LLM raise amount ${amount} below minimum ${minTotal}`);
       }
-      if (amount > player.chips + (player.bet || 0)) {
+      if (amount > maxTotal) {
         throw new Error(`LLM raise amount ${amount} exceeds available chips`);
       }
-      if (amount >= player.chips + (player.bet || 0)) {
+      if (amount >= maxTotal) {
         parsed.action = 'allin';
         parsed.amount = 0;
       }

@@ -66,10 +66,18 @@ app.use('/api/', limiter);
 
 // ─── Static Files (Frontend) ─────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'frontend'), {
-  maxAge: '1d',
-  setHeaders: (res, path) => {
-    // Disable cache for JS/HTML files during development
-    if (path.endsWith('.js') || path.endsWith('.html')) {
+  maxAge: config.NODE_ENV === 'production' ? '1d' : 0,
+  etag: config.NODE_ENV === 'production',
+  lastModified: config.NODE_ENV === 'production',
+  setHeaders: (res, filePath) => {
+    if (config.NODE_ENV !== 'production') {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      return;
+    }
+
+    if (filePath.endsWith('.js') || filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');

@@ -16,6 +16,7 @@ const RoomView = (function() {
 
     // Event bindings
     document.getElementById('btn-room-ready').addEventListener('click', onToggleReady);
+    document.getElementById('btn-room-add-ai').addEventListener('click', onAddAI);
     document.getElementById('btn-room-start').addEventListener('click', onStartGame);
     document.getElementById('btn-room-leave').addEventListener('click', onLeaveRoom);
 
@@ -157,9 +158,10 @@ const RoomView = (function() {
     const seatedCount = (roomData.seats || []).filter(s => s && s.playerId).length;
     document.getElementById('room-players').textContent = `${seatedCount}/${roomData.maxPlayers} 人`;
 
-    // Determine if I'm host and my seat
-    isHost = roomData.hostId === (App.player && App.player.id);
+    // Determine if I can control start and my seat
     const mySeat = (roomData.seats || []).find(s => s && s.playerId === (App.player && App.player.id));
+    const hostPlayer = (roomData.players || []).find(p => p.playerId === roomData.hostId);
+    isHost = roomData.hostId === (App.player && App.player.id) || Boolean(mySeat && hostPlayer && hostPlayer.isAI);
     mySeatPosition = mySeat ? mySeat.position : null;
     isReady = mySeat ? mySeat.isReady : false;
 
@@ -168,6 +170,7 @@ const RoomView = (function() {
 
     // Update action buttons
     const readyBtn = document.getElementById('btn-room-ready');
+    const addAIBtn = document.getElementById('btn-room-add-ai');
     const startBtn = document.getElementById('btn-room-start');
 
     if (mySeatPosition !== null) {
@@ -178,13 +181,26 @@ const RoomView = (function() {
       readyBtn.style.display = 'none';
     }
 
+    const canShowAddAI = isHost && roomData.allowAI;
+    const canAddAI = canShowAddAI && roomData.status !== 'playing' && seatedCount < roomData.maxPlayers;
+    addAIBtn.style.display = canShowAddAI ? 'inline-flex' : 'none';
+    addAIBtn.disabled = !canAddAI;
+    if (!canAddAI) {
+      addAIBtn.title = seatedCount >= roomData.maxPlayers ? '房间已满' : '当前不能添加AI';
+    } else {
+      addAIBtn.title = '添加一个AI玩家';
+    }
+
     if (isHost) {
       const allReady = (roomData.seats || []).filter(s => s.playerId).every(s => s.isReady);
-      const enoughPlayers = seatedCount >= 2;
+      const canFillWithAI = roomData.allowAI && seatedCount >= 1;
+      const enoughPlayers = seatedCount >= 2 || canFillWithAI;
       startBtn.style.display = 'inline-flex';
       startBtn.disabled = !(allReady && enoughPlayers);
       if (startBtn.disabled) {
         startBtn.title = allReady ? '至少需要2名玩家' : '还有玩家未准备';
+      } else {
+        startBtn.title = canFillWithAI && seatedCount < 2 ? '开始后将由 AI 补位' : '';
       }
     } else {
       startBtn.style.display = 'none';
@@ -221,6 +237,9 @@ const RoomView = (function() {
         const avatarChar = seat.isAI ? '🤖' : (seat.nickname ? seat.nickname.charAt(0).toUpperCase() : '?');
         const avatarColor = seat.avatar || '#3498db';
         const readyBadge = seat.isReady ? '<span class="ready-badge">已准备</span>' : '';
+        const removeAIButton = (isHost && seat.isAI && roomData.status !== 'playing')
+          ? `<button class="btn btn-ghost btn-sm btn-remove-ai" data-position="${pos}">移除AI</button>`
+          : '';
 
         el.innerHTML = `
           <div class="room-seat-inner">
@@ -231,6 +250,7 @@ const RoomView = (function() {
             </div>
             ${readyBadge}
             ${isMe ? '<button class="btn btn-ghost btn-sm btn-stand">起身</button>' : ''}
+            ${removeAIButton}
           </div>
         `;
       }
@@ -240,6 +260,19 @@ const RoomView = (function() {
   }
 
   function onSeatsGridClick(e) {
+    const removeAIBtn = e.target.closest('.btn-remove-ai');
+    if (removeAIBtn) {
+      const pos = parseInt(removeAIBtn.dataset.position, 10);
+      removeAIBtn.disabled = true;
+      removeAIBtn.textContent = '...';
+      SocketClient.removeAI(pos);
+      setTimeout(() => {
+        removeAIBtn.disabled = false;
+        removeAIBtn.textContent = '移除AI';
+      }, 1500);
+      return;
+    }
+
     const sitBtn = e.target.closest('.btn-sit');
     if (sitBtn) {
       const pos = parseInt(sitBtn.dataset.position, 10);
@@ -269,6 +302,10 @@ const RoomView = (function() {
 
   function onStartGame() {
     SocketClient.startGame();
+  }
+
+  function onAddAI() {
+    SocketClient.addAI();
   }
 
   function onLeaveRoom() {

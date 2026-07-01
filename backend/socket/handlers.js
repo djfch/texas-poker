@@ -185,13 +185,61 @@ async function handleConnection(socket, io) {
     }
   });
 
+  socket.on(EVENTS.CLIENT.ADD_AI, async () => {
+    try {
+      const roomId = player.currentRoom;
+      if (!roomId) return;
+
+      const room = await roomManager.getRoom(roomId);
+      if (!room || !roomManager._canControlRoom(room, player.id)) {
+        return socket.emit(EVENTS.SERVER.ERROR, { error: 'Only host can add AI' });
+      }
+
+      const result = await roomManager.addAI(roomId, aiManager);
+      if (!result.success) {
+        return socket.emit(EVENTS.SERVER.ERROR, { error: result.error });
+      }
+
+      _broadcastRoomState(io, roomId);
+    } catch (err) {
+      socket.emit(EVENTS.SERVER.ERROR, { error: err.message });
+    }
+  });
+
+  socket.on(EVENTS.CLIENT.REMOVE_AI, async (data = {}) => {
+    try {
+      const roomId = player.currentRoom;
+      if (!roomId) return;
+
+      const room = await roomManager.getRoom(roomId);
+      if (!room || !roomManager._canControlRoom(room, player.id)) {
+        return socket.emit(EVENTS.SERVER.ERROR, { error: 'Only host can remove AI' });
+      }
+
+      const position = Number(data.position);
+      if (!Number.isInteger(position)) {
+        return socket.emit(EVENTS.SERVER.ERROR, { error: 'Seat position required' });
+      }
+
+      const result = await roomManager.removeAI(roomId, position, aiManager);
+      if (!result.success) {
+        return socket.emit(EVENTS.SERVER.ERROR, { error: result.error });
+      }
+
+      io.to(roomId).emit(EVENTS.SERVER.PLAYER_LEFT, { position });
+      _broadcastRoomState(io, roomId);
+    } catch (err) {
+      socket.emit(EVENTS.SERVER.ERROR, { error: err.message });
+    }
+  });
+
   socket.on(EVENTS.CLIENT.START_GAME, async () => {
     try {
       const roomId = player.currentRoom;
       if (!roomId) return;
 
       const room = await roomManager.getRoom(roomId);
-      if (!room || room.hostId !== player.id) {
+      if (!room || !roomManager._canControlRoom(room, player.id)) {
         return socket.emit(EVENTS.SERVER.ERROR, { error: 'Only host can start' });
       }
 
@@ -224,14 +272,14 @@ async function handleConnection(socket, io) {
         bb: game.bigBlindPos,
       });
 
-      // Send private hole cards to each player
-      const fullGame = await gameEngine.getGameState(roomId, null);
-      for (const p of fullGame.players) {
-        const socketId = await store.getSocketByPlayerId(p.playerId);
+      // Send private hole cards to each player.
+      const privateDeals = await gameEngine.getPrivateDeals(roomId);
+      for (const deal of privateDeals) {
+        const socketId = await store.getSocketByPlayerId(deal.playerId);
         if (socketId) {
           io.to(socketId).emit(EVENTS.SERVER.GAME_DEALT, {
-            cards: p.holeCards,
-            position: p.seatPosition,
+            cards: deal.cards,
+            position: deal.position,
           });
         }
       }
@@ -269,57 +317,17 @@ async function handleConnection(socket, io) {
       }
 
       const beforeGame = await gameEngine.getGameState(roomId, null);
-      const beforeStatus = beforeGame?.status;
-      const beforeRound = _roundNameFromStatus(beforeStatus);
-
       const result = await gameEngine.handleAction(roomId, player.id, type, amount);
       if (!result.success) {
         return socket.emit(EVENTS.SERVER.ERROR, { error: result.error });
       }
 
       const afterGame = result.game;
-
-      io.to(roomId).emit(EVENTS.SERVER.GAME_ACTION, {
+      await _broadcastActionOutcome(io, roomId, beforeGame, afterGame, {
         position: beforeGame?.players.find(p => p.playerId === player.id)?.seatPosition,
         type,
         amount,
       });
-
-      io.to(roomId).emit(EVENTS.SERVER.GAME_POT, {
-        mainPot: afterGame.pots.mainPot,
-        sidePots: afterGame.pots.sidePots,
-        totalPot: afterGame.totalPot,
-      });
-
-      const afterStatus = afterGame.status;
-      const afterRound = _roundNameFromStatus(afterStatus);
-
-      // If round/phase advanced, broadcast community cards
-      if (beforeRound !== afterRound && ['flop', 'turn', 'river'].includes(afterRound)) {
-        io.to(roomId).emit(EVENTS.SERVER.GAME_COMMUNITY, {
-          cards: afterGame.communityCards,
-          round: afterRound,
-        });
-      }
-
-      if (afterStatus === 'showdown' || afterStatus === 'ended') {
-        const fullState = await gameEngine.getGameState(roomId, null);
-        const results = fullState.players
-          .filter(p => !p.folded)
-          .map(p => ({
-            position: p.seatPosition,
-            cards: p.holeCards,
-            handName: null,
-          }));
-
-        io.to(roomId).emit(EVENTS.SERVER.GAME_SHOWDOWN, { results });
-        io.to(roomId).emit(EVENTS.SERVER.GAME_ENDED, {
-          winners: afterGame.winners,
-          nextHandDelay: 5000,
-        });
-      } else {
-        await _broadcastGameTurn(io, roomId);
-      }
     } catch (err) {
       socket.emit(EVENTS.SERVER.ERROR, { error: err.message });
     }
@@ -413,6 +421,66 @@ async function handleConnection(socket, io) {
 
 // ─── Helper Functions ────────────────────────────────────────────
 
+async function _broadcastActionOutcome(io, roomId, beforeGame, afterGame, actionPayload) {
+  for (const item of _buildActionProgressEvents(beforeGame, afterGame, actionPayload)) {
+    io.to(roomId).emit(item.event, item.payload);
+  }
+
+  if (afterGame.status === 'showdown' || afterGame.status === 'ended') {
+    await _broadcastShowdownAndEnd(io, roomId, afterGame);
+  } else {
+    await _broadcastGameTurn(io, roomId);
+  }
+}
+
+function _buildActionProgressEvents(beforeGame, afterGame, actionPayload) {
+  const events = [
+    {
+      event: EVENTS.SERVER.GAME_ACTION,
+      payload: actionPayload,
+    },
+    {
+      event: EVENTS.SERVER.GAME_POT,
+      payload: {
+        mainPot: afterGame.pots.mainPot,
+        sidePots: afterGame.pots.sidePots,
+        totalPot: afterGame.totalPot,
+      },
+    },
+  ];
+
+  const beforeCards = beforeGame?.communityCards || [];
+  const afterCards = afterGame?.communityCards || [];
+  if (afterCards.length > beforeCards.length) {
+    events.push({
+      event: EVENTS.SERVER.GAME_COMMUNITY,
+      payload: {
+        cards: afterCards,
+        round: _roundNameFromStatus(afterGame.status),
+      },
+    });
+  }
+
+  return events;
+}
+
+async function _broadcastShowdownAndEnd(io, roomId, afterGame) {
+  const fullState = await gameEngine.getGameState(roomId, null);
+  const results = fullState.players
+    .filter(p => !p.folded)
+    .map(p => ({
+      position: p.seatPosition,
+      cards: p.holeCards,
+      handName: null,
+    }));
+
+  io.to(roomId).emit(EVENTS.SERVER.GAME_SHOWDOWN, { results });
+  io.to(roomId).emit(EVENTS.SERVER.GAME_ENDED, {
+    winners: afterGame.winners,
+    nextHandDelay: 5000,
+  });
+}
+
 async function _broadcastRoomState(io, roomId) {
   const room = await roomManager.getRoom(roomId);
   if (!room) return;
@@ -433,7 +501,7 @@ async function _broadcastGameTurn(io, roomId) {
   // If AI, schedule its decision
   const currentUser = await playerManager.getPlayerById(currentPlayer.playerId);
   if (currentUser?.isAI) {
-    const aiGameState = await gameEngine.getGameState(roomId, currentPlayer.playerId);
+    const aiGameState = await gameEngine.getAIDecisionContext(roomId, currentPlayer.playerId);
 
     // Avoid costly LLM calls when no human is left in the hand
     const otherPlayers = game.players.filter(p => !p.folded && p.playerId !== currentPlayer.playerId);
@@ -446,6 +514,7 @@ async function _broadcastGameTurn(io, roomId) {
 
     setTimeout(async () => {
       try {
+        const beforeGame = await gameEngine.getGameState(roomId, null);
         const result = await gameEngine.handleAction(
           roomId,
           currentPlayer.playerId,
@@ -453,25 +522,11 @@ async function _broadcastGameTurn(io, roomId) {
           decision.amount
         );
         if (result.success) {
-          io.to(roomId).emit(EVENTS.SERVER.GAME_ACTION, {
+          await _broadcastActionOutcome(io, roomId, beforeGame, result.game, {
             position: currentPlayer.seatPosition,
             type: decision.type,
             amount: decision.amount,
           });
-          io.to(roomId).emit(EVENTS.SERVER.GAME_POT, {
-            mainPot: result.game.pots.mainPot,
-            sidePots: result.game.pots.sidePots,
-            totalPot: result.game.totalPot,
-          });
-
-          if (result.game.status === 'ended') {
-            io.to(roomId).emit(EVENTS.SERVER.GAME_ENDED, {
-              winners: result.game.winners,
-              nextHandDelay: 5000,
-            });
-          } else {
-            await _broadcastGameTurn(io, roomId);
-          }
         }
       } catch (err) {
         console.error('[Socket] AI action error:', err);
@@ -511,4 +566,7 @@ function _roundNameFromStatus(status) {
   return status;
 }
 
-module.exports = { setupSocketHandlers };
+module.exports = {
+  setupSocketHandlers,
+  _buildActionProgressEvents,
+};

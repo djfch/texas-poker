@@ -63,6 +63,7 @@ class GameEngine {
       currentBet: 0,
       minRaise: room.bigBlind,
       actionsTaken: new Set(),
+      actionHistory: this._createActionHistory(),
       timeoutId: null,
     };
 
@@ -85,8 +86,14 @@ class GameEngine {
     const sb = game.players.find(p => p.seatPosition === game.smallBlindPos);
     const bb = game.players.find(p => p.seatPosition === game.bigBlindPos);
 
-    if (sb) this._placeBet(game, sb, room.smallBlind);
-    if (bb) this._placeBet(game, bb, room.bigBlind);
+    if (sb) {
+      const amount = this._placeBet(game, sb, room.smallBlind);
+      this._recordAction(game, sb, 'small_blind', amount);
+    }
+    if (bb) {
+      const amount = this._placeBet(game, bb, room.bigBlind);
+      this._recordAction(game, bb, 'big_blind', amount);
+    }
 
     game.currentBet = room.bigBlind;
     game.minRaise = room.bigBlind;
@@ -126,6 +133,8 @@ class GameEngine {
 
     const toCall = game.currentBet - player.bet;
     const numericAmount = Number(amount);
+    let historyAction = action;
+    let historyAmount = 0;
 
     switch (action) {
       case 'fold':
@@ -140,7 +149,7 @@ class GameEngine {
         break;
 
       case 'call':
-        this._placeBet(game, player, Math.min(toCall, player.chips));
+        historyAmount = this._placeBet(game, player, Math.min(toCall, player.chips));
         break;
 
       case 'raise':
@@ -167,11 +176,13 @@ class GameEngine {
         game.currentBet = player.bet;
         game.minRaise = player.bet - oldCurrentBet;
         game.actionsTaken.clear();
+        historyAction = 'raise';
+        historyAmount = player.bet;
         break;
       }
 
       case 'allin':
-        this._placeBet(game, player, player.chips);
+        historyAmount = this._placeBet(game, player, player.chips);
         if (player.bet > game.currentBet) {
           const oldCurrentBet = game.currentBet;
           game.currentBet = player.bet;
@@ -185,6 +196,7 @@ class GameEngine {
         return { success: false, error: 'Invalid action' };
     }
 
+    this._recordAction(game, player, historyAction, historyAmount);
     game.actionsTaken.add(playerId);
 
     if (await this._isRoundComplete(game)) {
@@ -206,6 +218,31 @@ class GameEngine {
     return this._sanitizeGameState(game, true, playerId);
   }
 
+  async getPrivateDeals(roomId) {
+    const game = await store.getGame(roomId);
+    if (!game) return [];
+
+    return game.players.map(p => ({
+      playerId: p.playerId,
+      position: p.seatPosition,
+      cards: p.holeCards.map(c => c.toJSON()),
+    }));
+  }
+
+  async getAIDecisionContext(roomId, playerId) {
+    const game = await store.getGame(roomId);
+    if (!game) return null;
+
+    const state = this._sanitizeGameState(game, true, playerId);
+    return {
+      ...state,
+      legal_actions: this._buildLegalActions(game, playerId),
+      action_history: this._sanitizeActionHistory(game),
+      position_context: this._buildPositionContext(game, playerId),
+      pot_odds: this._buildPotOdds(game, playerId),
+    };
+  }
+
   async isPlayerTurn(roomId, playerId) {
     const game = await store.getGame(roomId);
     if (!game) return false;
@@ -216,43 +253,7 @@ class GameEngine {
   async getValidActions(roomId, playerId) {
     const game = await store.getGame(roomId);
     if (!game) return [];
-    const player = game.players.find(p => p.playerId === playerId);
-    if (!player || player.folded || player.allIn) return [];
-    const currentPlayer = game.players.find(p => p.seatPosition === game.currentPosition);
-    if (!currentPlayer || currentPlayer.playerId !== playerId) return [];
-
-    const toCall = game.currentBet - player.bet;
-    const actions = [];
-
-    if (toCall === 0) {
-      actions.push({ type: 'check' });
-      actions.push({
-        type: 'bet',
-        minAmount: game.minRaise,
-        maxAmount: player.chips,
-      });
-    } else {
-      actions.push({ type: 'fold' });
-      if (player.chips <= toCall) {
-        actions.push({ type: 'allin' });
-      } else {
-        actions.push({
-          type: 'call',
-          amount: toCall,
-        });
-        actions.push({
-          type: 'raise',
-          minAmount: game.currentBet + game.minRaise,
-          maxAmount: player.chips + player.bet,
-        });
-      }
-    }
-
-    if (player.chips > 0) {
-      actions.push({ type: 'allin' });
-    }
-
-    return actions;
+    return this._getValidActionsForGame(game, playerId);
   }
 
   async timeoutFold(roomId, seatPosition) {
@@ -348,6 +349,161 @@ class GameEngine {
     }
 
     game.pots.addBet(player.seatPosition, actualBet);
+    return actualBet;
+  }
+
+  _getValidActionsForGame(game, playerId) {
+    const player = game.players.find(p => p.playerId === playerId);
+    if (!player || player.folded || player.allIn) return [];
+    const currentPlayer = game.players.find(p => p.seatPosition === game.currentPosition);
+    if (!currentPlayer || currentPlayer.playerId !== playerId) return [];
+
+    const toCall = game.currentBet - player.bet;
+    const actions = [];
+
+    if (toCall === 0) {
+      actions.push({ type: 'check' });
+      actions.push({
+        type: 'bet',
+        minAmount: game.minRaise,
+        maxAmount: player.chips,
+      });
+    } else {
+      actions.push({ type: 'fold' });
+      if (player.chips <= toCall) {
+        actions.push({ type: 'allin' });
+      } else {
+        actions.push({
+          type: 'call',
+          amount: toCall,
+        });
+        actions.push({
+          type: 'raise',
+          minAmount: game.currentBet + game.minRaise,
+          maxAmount: player.chips + player.bet,
+        });
+      }
+    }
+
+    if (player.chips > 0) {
+      actions.push({ type: 'allin' });
+    }
+
+    return actions;
+  }
+
+  _buildLegalActions(game, playerId) {
+    const player = game.players.find(p => p.playerId === playerId);
+    const validActions = this._getValidActionsForGame(game, playerId);
+    const actions = [];
+    for (const item of validActions) {
+      const type = item.type === 'bet' ? 'raise' : item.type;
+      if (!actions.includes(type)) actions.push(type);
+    }
+
+    const raiseAction = validActions.find(a => a.type === 'raise' || a.type === 'bet');
+    const toCall = player ? Math.max(0, game.currentBet - player.bet) : 0;
+
+    return {
+      actions,
+      to_call: toCall,
+      min_raise: raiseAction?.minAmount ?? 0,
+      max_raise: raiseAction?.maxAmount ?? 0,
+    };
+  }
+
+  _buildPositionContext(game, playerId) {
+    const player = game.players.find(p => p.playerId === playerId);
+    const activePositions = game.players
+      .filter(p => !p.folded && !p.allIn)
+      .map(p => p.seatPosition)
+      .sort((a, b) => a - b);
+
+    let actingOrder = activePositions;
+    if (game.currentPosition != null && activePositions.length > 0) {
+      const startIndex = activePositions.indexOf(game.currentPosition);
+      if (startIndex >= 0) {
+        actingOrder = activePositions.slice(startIndex).concat(activePositions.slice(0, startIndex));
+      }
+    }
+
+    const playerIndex = player ? actingOrder.indexOf(player.seatPosition) : -1;
+
+    return {
+      dealer_position: game.dealerPosition,
+      small_blind_position: game.smallBlindPos,
+      big_blind_position: game.bigBlindPos,
+      acting_order: actingOrder,
+      players_after_me: playerIndex >= 0 ? actingOrder.length - playerIndex - 1 : 0,
+    };
+  }
+
+  _buildPotOdds(game, playerId) {
+    const player = game.players.find(p => p.playerId === playerId);
+    if (!player) {
+      return {
+        pot_size: game.pots.getTotalPot(),
+        to_call: 0,
+        pot_odds: 0,
+        effective_stack: 0,
+        spr: 0,
+      };
+    }
+
+    const potSize = game.pots.getTotalPot();
+    const toCall = Math.max(0, game.currentBet - player.bet);
+    const opponents = game.players.filter(p => p.playerId !== playerId && !p.folded);
+    const largestOpponentStack = opponents.length ? Math.max(...opponents.map(p => p.chips)) : 0;
+    const effectiveStack = opponents.length ? Math.min(player.chips, largestOpponentStack) : 0;
+
+    return {
+      pot_size: potSize,
+      to_call: toCall,
+      pot_odds: this._roundRatio(toCall > 0 ? toCall / (potSize + toCall) : 0),
+      effective_stack: effectiveStack,
+      spr: this._roundRatio(potSize > 0 ? effectiveStack / potSize : 0),
+    };
+  }
+
+  _createActionHistory() {
+    return {
+      preflop: [],
+      flop: [],
+      turn: [],
+      river: [],
+    };
+  }
+
+  _recordAction(game, player, action, amount) {
+    if (!game.actionHistory) game.actionHistory = this._createActionHistory();
+    const street = this._streetKey(game.status);
+    if (!street) return;
+
+    game.actionHistory[street].push({
+      seat_position: player.seatPosition,
+      player_name: player.nickname,
+      action,
+      amount: Number(amount) || 0,
+      pot_after: game.pots.getTotalPot(),
+    });
+  }
+
+  _sanitizeActionHistory(game) {
+    const source = game.actionHistory || this._createActionHistory();
+    const history = this._createActionHistory();
+    for (const street of Object.keys(history)) {
+      history[street] = (source[street] || []).map(item => ({ ...item }));
+    }
+    return history;
+  }
+
+  _streetKey(status) {
+    return ['preflop', 'flop', 'turn', 'river'].includes(status) ? status : null;
+  }
+
+  _roundRatio(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Number(value.toFixed(4));
   }
 
   async _nextPlayer(game) {

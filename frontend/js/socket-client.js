@@ -66,6 +66,7 @@ const SocketClient = (function() {
 
     // Forward all game/room events to subscribers
     const serverEvents = [
+      'connected',
       'room:state',
       'player:joined',
       'player:left',
@@ -138,6 +139,14 @@ const SocketClient = (function() {
 
   function ready(isReady) {
     return emit('room:ready', { ready: isReady });
+  }
+
+  function addAI() {
+    return emit('room:add_ai');
+  }
+
+  function removeAI(position) {
+    return emit('room:remove_ai', { position });
   }
 
   function startGame() {
@@ -224,6 +233,8 @@ const SocketClient = (function() {
     sit,
     stand,
     ready,
+    addAI,
+    removeAI,
     startGame,
     gameAction,
     sendChat,

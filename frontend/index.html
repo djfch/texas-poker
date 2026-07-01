@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>德州扑克</title>
   <script src="/socket.io/socket.io.js"></script>
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/lobby.css">
-  <link rel="stylesheet" href="css/room.css">
-  <link rel="stylesheet" href="css/table.css">
+  <link rel="stylesheet" href="css/base.css?v=20260701-2">
+  <link rel="stylesheet" href="css/lobby.css?v=20260701-2">
+  <link rel="stylesheet" href="css/room.css?v=20260701-2">
+  <link rel="stylesheet" href="css/table.css?v=20260701-2">
 </head>
 <body>
   <div id="app">
@@ -62,6 +62,7 @@
           <div class="seats-grid" id="seats-grid"></div>
           <div class="room-actions" id="room-actions">
             <button class="btn btn-primary" id="btn-room-ready">准备</button>
+            <button class="btn btn-secondary" id="btn-room-add-ai" style="display:none;">添加AI</button>
             <button class="btn btn-success" id="btn-room-start" style="display:none;">开始游戏</button>
             <button class="btn btn-danger" id="btn-room-leave">离开房间</button>
           </div>
@@ -200,17 +201,17 @@
     </div>
   </div>
 
-  <script src="js/api.js"></script>
-  <script src="js/socket-client.js"></script>
-  <script src="js/components/card.js"></script>
-  <script src="js/components/chips.js"></script>
-  <script src="js/components/pot.js"></script>
-  <script src="js/components/timer.js"></script>
-  <script src="js/components/seat.js"></script>
-  <script src="js/components/actions.js"></script>
-  <script src="js/views/lobby.js"></script>
-  <script src="js/views/room.js"></script>
-  <script src="js/views/table.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/api.js?v=20260701-2"></script>
+  <script src="js/socket-client.js?v=20260701-2"></script>
+  <script src="js/components/card.js?v=20260701-2"></script>
+  <script src="js/components/chips.js?v=20260701-2"></script>
+  <script src="js/components/pot.js?v=20260701-2"></script>
+  <script src="js/components/timer.js?v=20260701-2"></script>
+  <script src="js/components/seat.js?v=20260701-2"></script>
+  <script src="js/components/actions.js?v=20260701-2"></script>
+  <script src="js/views/lobby.js?v=20260701-2"></script>
+  <script src="js/views/room.js?v=20260701-2"></script>
+  <script src="js/views/table.js?v=20260701-2"></script>
+  <script src="js/app.js?v=20260701-2"></script>
 </body>
 </html>

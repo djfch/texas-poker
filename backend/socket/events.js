@@ -12,6 +12,8 @@ module.exports = {
     SIT: 'seat:sit',
     STAND: 'seat:stand',
     READY: 'room:ready',
+    ADD_AI: 'room:add_ai',
+    REMOVE_AI: 'room:remove_ai',
     START_GAME: 'room:start',
     GAME_ACTION: 'game:action',
     CHAT_MESSAGE: 'chat:message',

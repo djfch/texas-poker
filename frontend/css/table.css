@@ -5,10 +5,14 @@
 .table-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh; /* dynamic viewport height for mobile */
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #0a3d27 0%, var(--color-table) 100%);
+}
+
+#table-view {
+  overflow: hidden;
 }
 
 /* Table Header */
@@ -63,6 +67,7 @@
 /* Table Surface - The felt */
 .table-surface {
   flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   /* Felt texture effect */
@@ -315,9 +320,12 @@
 /* Timer positioned near seat */
 .seat-timer-container {
   position: absolute;
-  z-index: 25;
-  width: 50px;
-  height: 50px;
+  top: -18px;
+  right: -18px;
+  z-index: 35;
+  width: 46px;
+  height: 46px;
+  pointer-events: none;
 }
 
 /* ============================================================
@@ -800,7 +808,7 @@
 
 @media (max-width: 768px) {
   .table-container {
-    min-height: 100dvh;
+    height: 100%;
   }
 
   .seat {
