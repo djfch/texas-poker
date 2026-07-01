@@ -32,7 +32,18 @@ const HOST = config.HOST;
 
 // ─── Express App ─────────────────────────────────────────────────
 const app = express();
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      connectSrc: ["'self'", 'ws:', 'wss:'],
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'"],
+    },
+  },
+}));
 app.use(cors({
   origin: config.CORS_ORIGINS.length ? config.CORS_ORIGINS : '*',
   methods: ['GET', 'POST'],
