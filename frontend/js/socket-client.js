@@ -57,6 +57,9 @@ const SocketClient = (function() {
     });
 
     socket.on('error', (data) => {
+      if (data?.code === 'PLAYER_UNKNOWN') {
+        _emitLocal('session_expired', data);
+      }
       console.error('[Socket] Server error:', data);
       _emitLocal('error', data);
     });

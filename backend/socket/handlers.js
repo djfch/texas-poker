@@ -65,6 +65,14 @@ async function handleConnection(socket, io) {
 
   socket.emit(EVENTS.SERVER.CONNECTED || 'connected', { playerId: player.id });
 
+  // If the client supplied an unknown playerId, tell them to re-create
+  if (queryPlayerId && !player) {
+    socket.emit(EVENTS.SERVER.ERROR, {
+      code: 'PLAYER_UNKNOWN',
+      error: 'Player session expired, please re-create',
+    });
+  }
+
   // ─── Room Events ─────────────────────────────────────────────
 
   socket.on(EVENTS.CLIENT.JOIN_ROOM, async (data = {}) => {

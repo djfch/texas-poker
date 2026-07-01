@@ -29,7 +29,7 @@ const App = (function() {
         state.player = player;
         API.setPlayerId(player.id);
         restoredPlayerId = player.id;
-        console.log('[App] Restored player:', player.nickname);
+        console.log('[App] Restored player from localStorage:', player.nickname);
         updateHeaderInfo();
       } catch (e) {
         localStorage.removeItem('poker_player');
@@ -44,6 +44,28 @@ const App = (function() {
       if (!state.player) {
         await ensureGuestPlayer();
       }
+    });
+
+    // Listen for backend telling us our player id is unknown (server restart)
+    SocketClient.on('connected', async (data) => {
+      if (data.playerId && state.player && state.player.id !== data.playerId) {
+        // Server assigned a new player id; adopt it
+        console.log('[App] Server assigned new player id:', data.playerId);
+        const newPlayer = { ...state.player, id: data.playerId };
+        state.player = newPlayer;
+        API.setPlayerId(data.playerId);
+        localStorage.setItem('poker_player', JSON.stringify(newPlayer));
+        updateHeaderInfo();
+      }
+    });
+
+    // Listen for session expiry and recreate guest
+    SocketClient.on('session_expired', async () => {
+      console.warn('[App] Player session expired, recreating guest');
+      localStorage.removeItem('poker_player');
+      state.player = null;
+      API.setPlayerId(null);
+      await ensureGuestPlayer();
     });
 
     // If already connected
