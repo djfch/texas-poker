@@ -1,0 +1,32 @@
+{
+  "name": "texas-poker",
+  "version": "1.0.0",
+  "description": "Multiplayer Texas Hold'em Poker with real-time WebSocket play and LLM-powered AI opponents",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test backend/domain/*.test.js",
+    "test:hand": "node backend/domain/hand-evaluator.test.js",
+    "test:pot": "node backend/domain/pot-manager.test.js"
+  },
+  "keywords": [
+    "poker",
+    "texas-holdem",
+    "websocket",
+    "multiplayer"
+  ],
+  "author": "Coder Agent",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "morgan": "^1.11.0",
+    "socket.io": "^4.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

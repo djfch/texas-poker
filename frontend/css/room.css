@@ -1,0 +1,174 @@
+/* ============================================================
+   Room (Waiting) Styles
+   ============================================================ */
+
+.room-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.room-header {
+  text-align: center;
+  padding: 20px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 20px;
+}
+
+.room-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.room-info {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+/* Seats Grid */
+.seats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 0;
+}
+
+/* Room Seat */
+.room-seat {
+  background: var(--color-bg-light);
+  border: 2px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all var(--transition-fast);
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.room-seat:hover {
+  border-color: rgba(255,255,255,0.12);
+}
+
+.room-seat-empty {
+  border-style: dashed;
+  border-color: rgba(255,255,255,0.1);
+}
+
+.room-seat-me {
+  border-color: var(--color-highlight);
+  box-shadow: 0 0 10px rgba(52, 152, 219, 0.2);
+}
+
+.room-seat-ready {
+  border-color: var(--color-primary);
+}
+
+.room-seat-empty-inner {
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.room-seat-number {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.room-seat-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  position: relative;
+}
+
+.room-seat-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+}
+
+.room-seat-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-seat-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.room-seat-ai {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(155, 89, 182, 0.3);
+  color: #b086d6;
+  border-radius: 4px;
+}
+
+.ready-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: rgba(46, 204, 113, 0.2);
+  color: var(--color-primary);
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.btn-stand {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  min-width: auto !important;
+}
+
+/* Room Actions */
+.room-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: 10px;
+}
+
+.room-actions .btn {
+  min-width: 120px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .seats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .room-actions {
+    flex-direction: column;
+  }
+
+  .room-actions .btn {
+    width: 100%;
+  }
+}

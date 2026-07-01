@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>德州扑克</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/lobby.css">
+  <link rel="stylesheet" href="css/room.css">
+  <link rel="stylesheet" href="css/table.css">
+</head>
+<body>
+  <div id="app">
+    <header id="app-header" class="app-header" style="display:none;">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar"></div>
+        <span class="user-nickname" id="user-nickname">访客</span>
+        <span class="user-chips" id="user-chips">筹码: ¥1,000</span>
+      </div>
+      <div class="header-title">德州扑克</div>
+      <button class="btn-header" id="btn-leave" style="display:none;">离开</button>
+    </header>
+
+    <main id="app-main">
+      <!-- 大厅 -->
+      <div id="lobby-view" class="view">
+        <div class="lobby-container">
+          <div class="lobby-hero">
+            <h1>德州扑克</h1>
+            <p class="lobby-subtitle">在线玩德州扑克，支持好友对战和AI机器人</p>
+            <div class="lobby-actions">
+              <button class="btn btn-primary btn-lg" id="btn-quick-start">快速开始</button>
+              <button class="btn btn-secondary btn-lg" id="btn-create-room">创建房间</button>
+            </div>
+          </div>
+          <div class="lobby-rooms-section">
+            <div class="lobby-section-header">
+              <h2>公开房间</h2>
+              <button class="btn btn-refresh" id="btn-refresh-rooms">刷新</button>
+            </div>
+            <div class="room-list" id="room-list"></div>
+          </div>
+          <div class="lobby-join-section">
+            <input type="text" id="input-room-id" class="input" placeholder="输入房间号（6位）" maxlength="6">
+            <button class="btn btn-primary" id="btn-join-by-id">加入房间</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 房间等待 -->
+      <div id="room-view" class="view" style="display:none;">
+        <div class="room-container">
+          <div class="room-header">
+            <h2 id="room-name">房间</h2>
+            <div class="room-info">
+              <span id="room-id-display">房间号: ------</span>
+              <span id="room-blinds">盲注: 10/20</span>
+              <span id="room-players">0/6 人</span>
+            </div>
+          </div>
+          <div class="seats-grid" id="seats-grid"></div>
+          <div class="room-actions" id="room-actions">
+            <button class="btn btn-primary" id="btn-room-ready">准备</button>
+            <button class="btn btn-success" id="btn-room-start" style="display:none;">开始游戏</button>
+            <button class="btn btn-danger" id="btn-room-leave">离开房间</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 牌桌 -->
+      <div id="table-view" class="view" style="display:none;">
+        <div class="table-container">
+          <div class="table-header">
+            <div class="table-room-info">
+              <span id="table-room-name">德州房间</span>
+              <span id="table-room-id">#------</span>
+              <span id="table-blinds">盲注: 10/20</span>
+            </div>
+            <button class="btn btn-leave" id="btn-table-leave">离开</button>
+          </div>
+
+          <div class="table-surface">
+            <div class="seats-ring" id="seats-ring"></div>
+
+            <div class="table-center">
+              <div class="community-cards" id="community-cards"></div>
+              <div class="pot-display" id="pot-display">
+                <span class="pot-label">底池</span>
+                <span class="pot-amount" id="pot-amount">¥0</span>
+              </div>
+              <div class="side-pots" id="side-pots"></div>
+            </div>
+          </div>
+
+          <div class="player-bar" id="player-bar">
+            <div class="my-cards" id="my-cards">
+              <span class="my-cards-label">我的手牌</span>
+              <div class="my-hole-cards" id="my-hole-cards"></div>
+            </div>
+            <div class="my-info">
+              <span class="my-nickname" id="my-nickname">我</span>
+              <span class="my-chips" id="my-chips">¥1,000</span>
+            </div>
+          </div>
+
+          <div class="action-bar" id="action-bar" style="display:none;"></div>
+        </div>
+      </div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- 创建房间弹窗 -->
+    <div id="modal-create-room" class="modal" style="display:none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>创建房间</h3>
+          <button class="modal-close" id="modal-close-create">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>房间名称</label>
+            <input type="text" id="create-room-name" class="input" value="德州房间" maxlength="20">
+          </div>
+          <div class="form-group">
+            <label>最大人数</label>
+            <select id="create-room-max-players" class="input">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6" selected>6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>小盲注</label>
+            <input type="number" id="create-room-sb" class="input" value="10" min="1">
+          </div>
+          <div class="form-group">
+            <label>大盲注</label>
+            <input type="number" id="create-room-bb" class="input" value="20" min="2">
+          </div>
+          <div class="form-group">
+            <label>初始筹码</label>
+            <input type="number" id="create-room-chips" class="input" value="1000" min="100">
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="create-room-ai" checked>
+              允许AI机器人
+            </label>
+          </div>
+          <div class="form-group">
+            <label>密码（可选）</label>
+            <input type="password" id="create-room-password" class="input" placeholder="留空为公开房间">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-create">取消</button>
+          <button class="btn btn-primary" id="btn-submit-create">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 输入密码弹窗 -->
+    <div id="modal-password" class="modal" style="display:none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-small">
+        <div class="modal-header">
+          <h3>输入密码</h3>
+          <button class="modal-close" id="modal-close-password">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="password" id="input-room-password" class="input" placeholder="房间密码">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-password">取消</button>
+          <button class="btn btn-primary" id="btn-submit-password">加入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 游戏结果弹窗 -->
+    <div id="modal-result" class="modal" style="display:none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="result-title">本局结果</h3>
+        </div>
+        <div class="modal-body" id="result-body"></div>
+        <div class="modal-footer" id="result-footer">
+          <button class="btn btn-primary" id="btn-next-hand">下一局</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/socket-client.js"></script>
+  <script src="js/components/card.js"></script>
+  <script src="js/components/chips.js"></script>
+  <script src="js/components/pot.js"></script>
+  <script src="js/components/timer.js"></script>
+  <script src="js/components/seat.js"></script>
+  <script src="js/components/actions.js"></script>
+  <script src="js/views/lobby.js"></script>
+  <script src="js/views/room.js"></script>
+  <script src="js/views/table.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

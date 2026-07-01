@@ -1,0 +1,884 @@
+/* ============================================================
+   Table (Game) Styles - The heart of the poker UI
+   ============================================================ */
+
+.table-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh; /* dynamic viewport height for mobile */
+  overflow: hidden;
+  background: linear-gradient(180deg, #0a3d27 0%, var(--color-table) 100%);
+}
+
+/* Table Header */
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(0,0,0,0.25);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+  z-index: 50;
+}
+
+.table-room-info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.table-room-info span:first-child {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+#table-room-id {
+  color: var(--color-text-muted);
+}
+
+#table-blinds {
+  color: var(--color-chip-gold);
+  font-weight: 600;
+}
+
+.btn-leave {
+  padding: 6px 14px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-leave:hover {
+  background: var(--color-danger);
+  color: white;
+}
+
+/* Table Surface - The felt */
+.table-surface {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  /* Felt texture effect */
+  background:
+    radial-gradient(ellipse at center, rgba(13, 92, 59, 0.9) 0%, rgba(8, 60, 35, 1) 100%);
+}
+
+/* Seats Ring */
+.seats-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+}
+
+/* Individual Seat on Table */
+.seat {
+  position: absolute;
+  width: 120px;
+  z-index: 20;
+}
+
+.seat-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 12px;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+/* Empty seat */
+.seat-empty .seat-inner {
+  background: rgba(0,0,0,0.3);
+  border: 2px dashed rgba(255,255,255,0.15);
+  min-height: 80px;
+  justify-content: center;
+}
+
+.seat-empty .btn-sit {
+  font-size: 12px;
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--color-text);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.seat-empty .btn-sit:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+/* Occupied seat */
+.seat:not(.seat-empty) .seat-inner {
+  background: rgba(0,0,0,0.4);
+  border: 2px solid rgba(255,255,255,0.1);
+}
+
+/* Seat avatar */
+.seat-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+  border: 2px solid rgba(255,255,255,0.2);
+}
+
+.seat-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.seat-chips {
+  font-size: 11px;
+  color: var(--color-chip-gold);
+  font-weight: 600;
+}
+
+/* Markers (D, SB, BB) */
+.seat-markers {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 2px;
+}
+
+.marker {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: white;
+}
+
+.marker-dealer {
+  background: #3498db;
+}
+
+.marker-sb {
+  background: #e67e22;
+}
+
+.marker-bb {
+  background: #c0392b;
+}
+
+/* Seat status labels */
+.seat-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  color: var(--color-text-muted);
+}
+
+/* Current turn highlight */
+.seat-turn .seat-inner {
+  border-color: var(--color-highlight) !important;
+  box-shadow: 0 0 15px var(--color-highlight-glow), 0 0 30px rgba(52, 152, 219, 0.3);
+  animation: glow 1.5s ease-in-out infinite;
+}
+
+/* My seat */
+.seat-me .seat-inner {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.3);
+}
+
+.seat-me .seat-avatar {
+  border-color: var(--color-primary);
+}
+
+/* Folded seat */
+.seat-folded .seat-inner {
+  opacity: 0.5;
+  filter: grayscale(0.7);
+}
+
+/* All-in seat */
+.seat-allin .seat-inner {
+  border-color: var(--color-danger) !important;
+}
+
+.seat-allin .seat-status {
+  background: var(--color-danger);
+  color: white;
+}
+
+/* Winner */
+.seat-winner .seat-inner {
+  border-color: var(--color-chip-gold) !important;
+  box-shadow: 0 0 20px rgba(241, 196, 15, 0.4);
+}
+
+/* Seat cards (hole cards) */
+.seat-cards {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.seat-cards .card-small {
+  width: var(--card-width-small);
+  height: var(--card-height-small);
+  font-size: 10px;
+}
+
+.seat-cards .card-small .card-corner {
+  font-size: 8px;
+}
+
+.seat-cards .card-small .card-center {
+  font-size: 16px;
+}
+
+/* Seat bet */
+.seat-bet {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--color-chip-gold);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Action text animation */
+.action-text {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 30;
+  transition: all 0.5s ease;
+  pointer-events: none;
+}
+
+/* Hand name label */
+.seat-hand-name {
+  font-size: 10px;
+  color: var(--color-chip-gold);
+  font-weight: 700;
+  text-align: center;
+  padding: 2px 6px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+.seat-winner-amount {
+  font-size: 12px;
+  color: var(--color-primary);
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Timer positioned near seat */
+.seat-timer-container {
+  position: absolute;
+  z-index: 25;
+  width: 50px;
+  height: 50px;
+}
+
+/* ============================================================
+   Table Center - Community Cards & Pot
+   ============================================================ */
+
+.table-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  z-index: 5;
+}
+
+/* Community Cards */
+.community-cards {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* Pot Display */
+.pot-container {
+  text-align: center;
+}
+
+.pot-main {
+  background: rgba(0,0,0,0.5);
+  padding: 10px 24px;
+  border-radius: 20px;
+  border: 1px solid rgba(241, 196, 15, 0.3);
+}
+
+.pot-label {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.pot-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--color-chip-gold);
+}
+
+.pot-sides {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  justify-content: center;
+}
+
+.pot-side {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.pot-side-value {
+  color: var(--color-chip-gold);
+  font-weight: 600;
+}
+
+/* ============================================================
+   Player Bar (Bottom)
+   ============================================================ */
+
+.player-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(0,0,0,0.4);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  gap: 20px;
+}
+
+.my-cards {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.my-cards-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.my-hole-cards {
+  display: flex;
+  gap: 6px;
+}
+
+.my-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.my-nickname {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.my-chips {
+  color: var(--color-chip-gold);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+/* ============================================================
+   Action Bar (Bottom)
+   ============================================================ */
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(0,0,0,0.5);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  min-width: 90px;
+  font-size: 14px;
+  padding: 10px 16px;
+}
+
+.action-fold {
+  background: var(--color-danger);
+}
+
+.action-fold:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+}
+
+.action-check {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.action-check:hover:not(:disabled) {
+  background: rgba(255,255,255,0.25);
+}
+
+.action-call {
+  background: var(--color-secondary);
+}
+
+.action-call:hover:not(:disabled) {
+  background: var(--color-secondary-hover);
+}
+
+.action-bet {
+  background: var(--color-primary);
+}
+
+.action-raise {
+  background: var(--color-warning);
+}
+
+.action-raise:hover:not(:disabled) {
+  background: var(--color-warning-hover);
+}
+
+.action-allin {
+  background: var(--color-info);
+}
+
+/* Raise wrapper with input */
+.raise-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.raise-input {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 8px;
+}
+
+.raise-quick-buttons {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.raise-quick-buttons .btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.raise-slider {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+/* ============================================================
+   Card Styles (within table context)
+   ============================================================ */
+
+.card {
+  width: var(--card-width);
+  height: var(--card-height);
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  overflow: hidden;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+.card-red {
+  color: var(--color-card-red);
+}
+
+.card-black {
+  color: var(--color-card-black);
+}
+
+.card-back {
+  background: var(--color-card-back);
+  border-color: #1a3a5f;
+}
+
+.card-back-pattern {
+  width: 100%;
+  height: 100%;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--color-card-back-pattern),
+      var(--color-card-back-pattern) 4px,
+      var(--color-card-back) 4px,
+      var(--color-card-back) 8px
+    );
+  border-radius: 6px;
+  border: 2px solid rgba(255,255,255,0.1);
+}
+
+.card-corner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  padding: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.card-corner-tl {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+}
+
+.card-corner-br {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  transform: rotate(180deg);
+}
+
+.card-rank {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.card-suit {
+  font-size: 12px;
+}
+
+.card-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+}
+
+.card-face {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.card-ace {
+  font-size: 40px;
+  font-weight: 800;
+}
+
+/* Card animation */
+.card-animate {
+  animation: dealCard 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ============================================================
+   Chip Styles
+   ============================================================ */
+
+.chip-stack {
+  position: relative;
+  width: 44px;
+  height: 44px;
+}
+
+.chip {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px dashed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.chip-amount-label {
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-chip-gold);
+  white-space: nowrap;
+}
+
+.chip-more {
+  position: absolute;
+  right: -4px;
+  bottom: 0;
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.chip-amount {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-chip-gold);
+}
+
+/* ============================================================
+   Timer Styles
+   ============================================================ */
+
+.timer {
+  position: relative;
+  width: 46px;
+  height: 46px;
+}
+
+.timer-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.timer-track {
+  fill: none;
+  stroke: rgba(255,255,255,0.15);
+  stroke-width: 4;
+}
+
+.timer-progress {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.1s linear;
+}
+
+.timer-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+}
+
+.timer-warning .timer-progress {
+  stroke: var(--color-danger);
+}
+
+.timer-warning .timer-text {
+  color: var(--color-danger);
+  animation: blink 0.5s ease-in-out infinite;
+}
+
+.timer-expired .timer-progress {
+  stroke: var(--color-danger);
+  opacity: 0.3;
+}
+
+/* ============================================================
+   Result Modal
+   ============================================================ */
+
+.result-winners {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-winner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(46, 204, 113, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(46, 204, 113, 0.2);
+}
+
+.result-winner-name {
+  font-weight: 600;
+}
+
+.result-winner-amount {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* ============================================================
+   Loading Overlay
+   ============================================================ */
+
+.app-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.app-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: white;
+}
+
+.app-loading-text {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* ============================================================
+   Responsive Table
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .table-container {
+    min-height: 100dvh;
+  }
+
+  .seat {
+    width: 90px;
+  }
+
+  .seat-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .seat-name {
+    font-size: 10px;
+    max-width: 80px;
+  }
+
+  .seat-cards .card-small {
+    width: 32px;
+    height: 46px;
+  }
+
+  .pot-value {
+    font-size: 18px;
+  }
+
+  .player-bar {
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .my-info {
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .action-bar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .action-btn {
+    min-width: 70px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .raise-wrapper {
+    min-width: 140px;
+  }
+
+  .table-room-info {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .seat {
+    width: 76px;
+  }
+
+  .card {
+    width: 48px;
+    height: 68px;
+  }
+
+  .card-center {
+    font-size: 24px;
+  }
+
+  .card-rank {
+    font-size: 11px;
+  }
+
+  .card-suit {
+    font-size: 10px;
+  }
+}
