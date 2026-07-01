@@ -88,7 +88,17 @@ const App = (function() {
   }
 
   async function ensureGuestPlayer() {
-    if (state.player) return;
+    // If current player is invalid, clear it so we create a fresh one
+    if (state.player) {
+      const result = await API.getProfile?.();
+      if (!result || !result.success) {
+        state.player = null;
+        API.setPlayerId(null);
+        localStorage.removeItem('poker_player');
+      } else {
+        return;
+      }
+    }
 
     const result = await API.createGuest();
     if (result.success) {
@@ -245,6 +255,7 @@ const App = (function() {
     showToast,
     showLoading,
     hideLoading,
+    ensureGuestPlayer,
     get player() { return state.player; },
     set player(val) { state.player = val; updateHeaderInfo(); },
     get currentRoom() { return state.currentRoom; },

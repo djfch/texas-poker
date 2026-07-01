@@ -142,7 +142,7 @@ const LobbyView = (function() {
     } else {
       App.hideLoading();
       // Auto-create a quick room and join
-      const createResult = await API.createRoom({
+      let createResult = await API.createRoom({
         name: '快速游戏',
         maxPlayers: 6,
         smallBlind: 10,
@@ -150,6 +150,19 @@ const LobbyView = (function() {
         initialChips: 1000,
         allowAI: true,
       });
+
+      // Retry once if player session expired
+      if (!createResult.success && createResult.error === 'Player not found') {
+        await App.ensureGuestPlayer();
+        createResult = await API.createRoom({
+          name: '快速游戏',
+          maxPlayers: 6,
+          smallBlind: 10,
+          bigBlind: 20,
+          initialChips: 1000,
+          allowAI: true,
+        });
+      }
 
       if (createResult.success) {
         const room = createResult.data.room;
@@ -246,7 +259,7 @@ const LobbyView = (function() {
     closeCreateModal();
     App.showLoading('创建房间中...');
 
-    const result = await API.createRoom({
+    let result = await API.createRoom({
       name,
       maxPlayers,
       smallBlind,
@@ -255,6 +268,20 @@ const LobbyView = (function() {
       allowAI,
       password,
     });
+
+    // If player session expired, recreate guest and retry once
+    if (!result.success && result.error === 'Player not found') {
+      await App.ensureGuestPlayer();
+      result = await API.createRoom({
+        name,
+        maxPlayers,
+        smallBlind,
+        bigBlind,
+        initialChips,
+        allowAI,
+        password,
+      });
+    }
 
     App.hideLoading();
 
@@ -298,5 +325,6 @@ const LobbyView = (function() {
     show,
     hide,
     loadRooms,
+    ensureGuestPlayer: App.ensureGuestPlayer,
   };
 })();
