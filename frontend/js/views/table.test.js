@@ -200,6 +200,32 @@ function loadTableView() {
   return { actions, elements, listeners, potCalls, renderedCards, socketCalls };
 }
 
+test('bottom player seat is raised above the player bar safe area', () => {
+  const { elements, listeners } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 1000,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  assert.equal(elements.get('seats-ring').children[0].style.top, '64%');
+});
+
 test('showdown creates a seat cards container when an opponent was previously hidden', () => {
   const { elements, listeners } = loadTableView();
 

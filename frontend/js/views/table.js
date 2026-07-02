@@ -519,20 +519,24 @@ const TableView = (function() {
     const existing = seatElements[pos];
     if (existing) {
       SeatComponent.update(existing, seat, { isMe, isCurrentTurn, showCards });
+      applySeatLayout(existing, pos);
     } else {
       const el = SeatComponent.render(seat, { isMe, isCurrentTurn, showCards });
-
-      const layout = SEAT_POSITIONS[pos];
-      if (layout) {
-        el.style.position = 'absolute';
-        el.style.left = layout.left;
-        el.style.top = layout.top;
-        el.style.transform = layout.transform;
-      }
+      applySeatLayout(el, pos);
 
       ring.appendChild(el);
       seatElements[pos] = el;
     }
+  }
+
+  function applySeatLayout(el, pos) {
+    const layout = SEAT_POSITIONS[pos];
+    if (!layout) return;
+
+    el.style.position = 'absolute';
+    el.style.left = layout.left;
+    el.style.top = pos === 0 ? '64%' : layout.top;
+    el.style.transform = layout.transform;
   }
 
   function onSeatsRingClick(e) {
