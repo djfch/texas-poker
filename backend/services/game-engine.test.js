@@ -162,7 +162,7 @@ test('ended hands include winner seat position and nickname', async () => {
   ]);
 });
 
-test('all-in reveals every non-folded player hole cards in public game state', async () => {
+test('all-in reveals every non-folded player hole cards only when all active players are all-in', async () => {
   resetStore();
   await createPlayer('human-1', 0);
   await createPlayer('human-2', 1);
@@ -181,15 +181,27 @@ test('all-in reveals every non-folded player hole cards in public game state', a
   const beforeAllIn = await gameEngine.getGameState('ROOM01', null);
   assert.equal(beforeAllIn.players.every(p => p.holeCards === null), true);
 
+  // First all-in: no one should have public hole cards yet.
   assert.equal((await gameEngine.handleAction('ROOM01', 'human-1', 'allin')).success, true);
-  const afterAllIn = await gameEngine.getGameState('ROOM01', null);
+  const afterFirstAllIn = await gameEngine.getGameState('ROOM01', null);
+  assert.equal(afterFirstAllIn.players.every(p => p.holeCards === null), true);
 
-  const livePlayers = afterAllIn.players.filter(p => !p.folded);
+  // Second all-in: still one player can act, so hands stay hidden.
+  assert.equal((await gameEngine.handleAction('ROOM01', 'human-2', 'allin')).success, true);
+  const afterSecondAllIn = await gameEngine.getGameState('ROOM01', null);
+  assert.equal(afterSecondAllIn.players.every(p => p.holeCards === null), true);
+
+  // Last active player goes all-in: all remaining hands are revealed and the hand ends.
+  assert.equal((await gameEngine.handleAction('ROOM01', 'human-3', 'allin')).success, true);
+  const afterAllAllIn = await gameEngine.getGameState('ROOM01', null);
+  assert.equal(afterAllAllIn.status, 'ended');
+
+  const livePlayers = afterAllAllIn.players.filter(p => !p.folded);
   assert.equal(livePlayers.length, 3);
   assert.equal(livePlayers.every(p => Array.isArray(p.holeCards) && p.holeCards.length === 2), true);
 });
 
-test('all-in action result includes revealed live player hole cards for socket broadcasts', async () => {
+test('all-in action result includes revealed live player hole cards only after all active players are all-in', async () => {
   resetStore();
   await createPlayer('human-1', 0);
   await createPlayer('human-2', 1);
@@ -206,11 +218,22 @@ test('all-in action result includes revealed live player hole cards for socket b
 
   assert.equal((await gameEngine.startGame('ROOM01')).success, true);
 
-  const result = await gameEngine.handleAction('ROOM01', 'human-1', 'allin');
-
-  assert.equal(result.success, true);
+  // A single all-in should not reveal cards yet.
+  const firstResult = await gameEngine.handleAction('ROOM01', 'human-1', 'allin');
+  assert.equal(firstResult.success, true);
   assert.equal(
-    result.game.players.filter(p => !p.folded).every(p => Array.isArray(p.holeCards) && p.holeCards.length === 2),
+    firstResult.game.players.filter(p => !p.folded).every(p => p.holeCards === null),
+    true
+  );
+
+  // Once every remaining player is all-in, the hand ends and cards are public.
+  await gameEngine.handleAction('ROOM01', 'human-2', 'allin');
+  const finalResult = await gameEngine.handleAction('ROOM01', 'human-3', 'allin');
+
+  assert.equal(finalResult.success, true);
+  assert.equal(finalResult.game.status, 'ended');
+  assert.equal(
+    finalResult.game.players.filter(p => !p.folded).every(p => Array.isArray(p.holeCards) && p.holeCards.length === 2),
     true
   );
 });

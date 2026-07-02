@@ -235,6 +235,35 @@ test('adds exactly one AI player to the first open seat', async () => {
   assert.equal(room.seats[1], 'bot-1');
 });
 
+test('auto-lend gives broke seated AI one initial stack and marks them ready', async () => {
+  resetStore();
+  await createPlayer('old-host', false);
+  await createPlayer('bot-1', true);
+  await createPlayer('human-2', false);
+  await store.createRoom(createRoom({
+    players: [
+      { playerId: 'old-host', nickname: 'Old Host', avatar: '#111', seatPosition: 0, isReady: true, chips: 1000, buyInTotal: 1000, borrowCount: 0, isAI: false },
+      { playerId: 'bot-1', nickname: 'Bot-One', avatar: '#222', seatPosition: 1, isReady: false, chips: 0, buyInTotal: 1000, borrowCount: 0, isAI: true },
+      { playerId: 'human-2', nickname: 'Human Two', avatar: '#333', seatPosition: 2, isReady: true, chips: 1000, buyInTotal: 1000, borrowCount: 0, isAI: false },
+    ],
+  }));
+
+  const result = await roomManager.autoLendToBrokeAI('ROOM01');
+  const room = await store.getRoom('ROOM01');
+  const bot = room.players.find(p => p.playerId === 'bot-1');
+  const storedBot = await store.getPlayer('bot-1');
+
+  assert.equal(result.lent.length, 1);
+  assert.equal(result.lent[0].playerId, 'bot-1');
+  assert.equal(result.lent[0].amount, 1000);
+  assert.equal(bot.chips, 1000);
+  assert.equal(bot.buyInTotal, 2000);
+  assert.equal(bot.borrowCount, 1);
+  assert.equal(bot.isReady, true);
+  assert.equal(storedBot.chips, 1000);
+  assert.equal(storedBot.isReady, true);
+});
+
 test('removes an AI player from a requested waiting-room seat', async () => {
   resetStore();
   await createPlayer('old-host', false);

@@ -216,12 +216,16 @@ async function handleConnection(socket, io) {
         return socket.emit(EVENTS.SERVER.ERROR, { error: result.error });
       }
 
+      // Also auto-lend to any broke AI so they don't block the next hand.
+      await roomManager.autoLendToBrokeAI(roomId);
+
       socket.emit(EVENTS.SERVER.ROOM_SETTLEMENT, {
         roomId,
         settlement: result.settlement,
         type: 'borrow',
       });
       _broadcastRoomState(io, roomId);
+      await _maybeAutoStartNextHand(io, roomId);
     } catch (err) {
       socket.emit(EVENTS.SERVER.ERROR, { error: err.message });
     }
@@ -527,7 +531,7 @@ function _buildActionProgressEvents(beforeGame, afterGame, actionPayload) {
     });
   }
 
-  if (!_hasPublicHoleCards(beforeGame) && _hasPublicHoleCards(afterGame)) {
+  if (!_hasPublicShowdownCards(beforeGame) && _hasPublicShowdownCards(afterGame)) {
     events.push({
       event: EVENTS.SERVER.GAME_SHOWDOWN,
       payload: {
@@ -541,15 +545,7 @@ function _buildActionProgressEvents(beforeGame, afterGame, actionPayload) {
 
 async function _broadcastShowdownAndEnd(io, roomId, afterGame) {
   const fullState = await gameEngine.getGameState(roomId, null);
-  const results = fullState.players
-    .filter(p => !p.folded)
-    .map(p => ({
-      position: p.seatPosition,
-      playerId: p.playerId,
-      nickname: p.nickname,
-      cards: p.holeCards,
-      handName: null,
-    }));
+  const results = fullState?.showdownResults || [];
 
   io.to(roomId).emit(EVENTS.SERVER.GAME_SHOWDOWN, { results });
   io.to(roomId).emit(EVENTS.SERVER.GAME_ENDED, {
@@ -598,6 +594,10 @@ async function _startHandForRoom(io, roomId, starterId) {
 async function _maybeAutoStartNextHand(io, roomId) {
   const room = await roomManager.getRoom(roomId);
   if (!room || !room.awaitingNextHandReady || room.status !== 'waiting') return false;
+
+  // Ensure broke AI get lent chips before checking start conditions.
+  await roomManager.autoLendToBrokeAI(roomId);
+
   if (!(await roomManager.canStart(roomId))) return false;
 
   const starter = room.hostId || room.players.find(p => p.seatPosition >= 0)?.playerId;
@@ -746,11 +746,30 @@ function _roundNameFromStatus(status) {
   return status;
 }
 
-function _hasPublicHoleCards(game) {
-  return Boolean(game?.players?.some(p => !p.folded && Array.isArray(p.holeCards) && p.holeCards.length === 2));
+function _hasPublicShowdownCards(game) {
+  if (!game) return false;
+
+  const hasShowdownResult = Array.isArray(game.showdownResults) && game.showdownResults.length > 0;
+  const isShowdownState = game.status === 'showdown' || game.status === 'ended';
+  if (!hasShowdownResult && !isShowdownState) return false;
+
+  if (hasShowdownResult) {
+    return game.showdownResults.some(r => Array.isArray(r.cards) && r.cards.length === 2);
+  }
+
+  return Boolean(game.players?.some(p => !p.folded && Array.isArray(p.holeCards) && p.holeCards.length === 2));
 }
 
 function _buildVisibleHoleCardResults(game) {
+  if (game?.showdownResults) {
+    return game.showdownResults.map(r => ({
+      position: r.position,
+      playerId: r.playerId,
+      cards: r.cards,
+      handName: r.handName,
+    }));
+  }
+
   return (game?.players || [])
     .filter(p => !p.folded && Array.isArray(p.holeCards) && p.holeCards.length === 2)
     .map(p => ({

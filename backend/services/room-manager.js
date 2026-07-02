@@ -214,6 +214,42 @@ class RoomManager {
   }
 
   /**
+   * Automatically lend one initial stack to every broke AI that is seated.
+   * Returns the list of players that received chips.
+   */
+  async autoLendToBrokeAI(roomId) {
+    const room = await store.getRoom(roomId);
+    if (!room || room.status === 'playing') return { lent: [] };
+
+    const stackSize = room.initialChips ?? DEFAULT_INITIAL_CHIPS;
+    const lent = [];
+
+    for (const player of room.players) {
+      if (this._isAIPlayer(player) && player.seatPosition >= 0 && (player.chips ?? 0) <= 0) {
+        this._normalizeRoomPlayerLedger(room, player);
+        player.chips += stackSize;
+        player.buyInTotal += stackSize;
+        player.borrowCount += 1;
+        player.isReady = true;
+
+        const storedPlayer = await store.getPlayer(player.playerId);
+        if (storedPlayer) {
+          storedPlayer.chips = player.chips;
+          storedPlayer.isReady = true;
+        }
+
+        lent.push({
+          playerId: player.playerId,
+          position: player.seatPosition,
+          amount: stackSize,
+        });
+      }
+    }
+
+    return { lent };
+  }
+
+  /**
    * Player sits at a seat
    */
   async sit(roomId, playerId, position) {

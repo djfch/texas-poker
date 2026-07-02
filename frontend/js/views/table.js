@@ -15,7 +15,7 @@ const TableView = (function() {
 
   // 环形布局位置（相对于桌面的百分比）
   const SEAT_POSITIONS = [
-    { left: '50%',  top: '88%',  transform: 'translate(-50%, 0)' },      // 0: 底部中央（我）
+    { left: '50%',  top: '72%',  transform: 'translate(-50%, 0)' },      // 0: 底部中央（我）
     { left: '78%',  top: '75%',  transform: 'translate(-50%, -50%)' },   // 1: 右下
     { left: '92%',  top: '50%',  transform: 'translate(-100%, -50%)' },  // 2: 右侧
     { left: '78%',  top: '20%',  transform: 'translate(-50%, -50%)' },   // 3: 右上
@@ -129,6 +129,10 @@ const TableView = (function() {
     renderSeats(room.seats || []);
     if (lastHandResults && room.awaitingNextHandReady) {
       renderHandResults(lastHandResults);
+      // Re-apply showdown hand names in case renderHandResults cleared result labels.
+      if (gameState?.showdownResults) {
+        onGameShowdown({ results: gameState.showdownResults });
+      }
     }
   }
 
@@ -166,6 +170,7 @@ const TableView = (function() {
     const modal = document.getElementById('modal-result');
     if (modal) modal.style.display = 'none';
     clearSeatHandResults();
+    clearSeatHandNames();
     hideNextHandActionButton();
     document.getElementById('community-cards').innerHTML = '';
     document.getElementById('pot-display').innerHTML = '';
@@ -334,40 +339,69 @@ const TableView = (function() {
 
   function onGameShowdown(data) {
     // data: { results: [{ position, cards, handName }] }
-    if (data.results) {
-      data.results.forEach(r => {
-        const statePlayer = gameState?.players?.find(p => p.seatPosition === r.position || p.playerId === r.playerId);
-        if (statePlayer && r.cards) {
-          statePlayer.holeCards = r.cards;
-        }
+    if (!data.results) return;
 
-        const seatEl = seatElements[r.position];
-        if (seatEl) {
-          if (r.cards && r.cards.length === 2) {
-            const cardsContainer = getOrCreateSeatCardsContainer(seatEl);
-            cardsContainer.innerHTML = '';
-            r.cards.forEach(card => {
-              cardsContainer.appendChild(CardComponent.render(card, { small: true }));
-            });
-          }
-          if (r.handName) {
-            const inner = seatEl.querySelector('.seat-inner');
-            let handLabel = inner.querySelector('.seat-hand-name');
-            if (!handLabel) {
-              handLabel = document.createElement('div');
-              handLabel.className = 'seat-hand-name';
-              inner.appendChild(handLabel);
-            }
-            handLabel.textContent = r.handName;
-          }
-        }
-      });
+    // Mark the local game state as showdown so subsequent seat re-renders keep cards visible.
+    if (gameState) {
+      gameState.status = 'showdown';
+      gameState.showdownResults = data.results;
     }
+
+    data.results.forEach(r => {
+      const statePlayer = gameState?.players?.find(p => p.seatPosition === r.position || p.playerId === r.playerId);
+      if (statePlayer) {
+        if (r.cards) statePlayer.holeCards = r.cards;
+        if (r.handName) statePlayer.handName = r.handName;
+      }
+
+      const seatEl = seatElements[r.position];
+      if (seatEl) {
+        if (r.cards && r.cards.length === 2) {
+          const cardsContainer = getOrCreateSeatCardsContainer(seatEl);
+          cardsContainer.innerHTML = '';
+          r.cards.forEach(card => {
+            cardsContainer.appendChild(CardComponent.render(card, { small: true }));
+          });
+        }
+        if (r.handName) {
+          const inner = seatEl.querySelector('.seat-inner');
+          let handLabel = inner.querySelector('.seat-hand-name');
+          if (!handLabel) {
+            handLabel = document.createElement('div');
+            handLabel.className = 'seat-hand-name';
+            inner.appendChild(handLabel);
+          }
+          handLabel.textContent = r.handName;
+        }
+      }
+    });
   }
 
   function onGameEnded(data) {
     const modal = document.getElementById('modal-result');
     if (modal) modal.style.display = 'none';
+
+    // Keep local game state marked as ended so re-rendered seats still show hole cards.
+    if (gameState) {
+      gameState.status = 'ended';
+      if (data.showdownResults) {
+        gameState.showdownResults = data.showdownResults;
+      }
+      if (data.winners) {
+        gameState.winners = data.winners;
+      }
+      if (data.handResults) {
+        gameState.handResults = data.handResults;
+      }
+      if (Array.isArray(data.players)) {
+        data.players.forEach(snapshot => {
+          const p = gameState.players?.find(x => x.playerId === snapshot.playerId || x.seatPosition === snapshot.seatPosition);
+          if (p && snapshot.holeCards) {
+            p.holeCards = snapshot.holeCards;
+          }
+        });
+      }
+    }
 
     const handResults = data.handResults || buildHandResultsFromWinners(data.winners || []);
     lastHandResults = handResults;
@@ -408,6 +442,9 @@ const TableView = (function() {
         getVisibleSidePots(gameState.pots.sidePots, gameState.players),
         gameState.totalPot
       );
+    }
+    if (gameState.showdownResults) {
+      onGameShowdown({ results: gameState.showdownResults });
     }
     if (gameState.handResults) {
       lastHandResults = gameState.handResults;
@@ -571,6 +608,13 @@ const TableView = (function() {
     });
   }
 
+  function clearSeatHandNames() {
+    Object.values(seatElements).forEach(seatEl => {
+      const handName = seatEl.querySelector('.seat-hand-name');
+      if (handName) handName.remove();
+    });
+  }
+
   function renderHandResults(results) {
     clearSeatHandResults();
     (results || []).forEach(result => {
@@ -581,7 +625,6 @@ const TableView = (function() {
       const delta = Number(result.delta) || 0;
       const isWinner = result.isWinner || delta > 0;
       seatEl.classList.add(isWinner ? 'seat-winner' : 'seat-loser');
-      if (result.chips !== undefined) updateSeatChips(position, result.chips);
 
       const inner = seatEl.querySelector('.seat-inner');
       if (!inner) return;

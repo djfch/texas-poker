@@ -46,9 +46,20 @@ function createElement(id = '') {
       },
     },
     querySelector(selector) {
-      return this.children.find(child => selector.startsWith('.')
+      const matches = child => selector.startsWith('.')
         ? child.className.split(/\s+/).includes(selector.slice(1))
-        : child.id === selector.slice(1)) || null;
+        : child.id === selector.slice(1);
+
+      const visit = node => {
+        for (const child of node.children) {
+          if (matches(child)) return child;
+          const found = visit(child);
+          if (found) return found;
+        }
+        return null;
+      };
+
+      return visit(this);
     },
   };
   return element;
@@ -123,10 +134,25 @@ function loadTableView() {
         el.dataset.position = seat.position;
         const inner = createElement();
         inner.className = 'seat-inner';
+        const chips = createElement();
+        chips.className = 'seat-chips';
+        chips.textContent = '楼' + (Number(seat.chips) || 0).toLocaleString();
+        inner.appendChild(chips);
         el.appendChild(inner);
         return el;
       },
-      update() {},
+      update(el, seat) {
+        const inner = el.querySelector('.seat-inner');
+        if (!inner) return;
+        inner.innerHTML = '';
+        let chips = inner.querySelector('.seat-chips');
+        if (!chips) {
+          chips = createElement();
+          chips.className = 'seat-chips';
+          inner.appendChild(chips);
+        }
+        chips.textContent = '楼' + (Number(seat.chips) || 0).toLocaleString();
+      },
     },
     SocketClient: {
       borrowChips() {
@@ -217,6 +243,71 @@ test('showdown creates a seat cards container when an opponent was previously hi
   assert.equal(cards.children.length, 2);
 });
 
+test('showdown hand names stay visible through next-hand waiting room refresh', () => {
+  const { elements, listeners } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        { position: 0, playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', chips: 1000, status: 'occupied' },
+        { position: 1, playerId: 'human-2', nickname: 'Other', avatar: '#3498db', chips: 1000, status: 'occupied' },
+      ],
+    },
+  });
+
+  listeners['game:state']({
+    gameState: {
+      status: 'river',
+      communityCards: ['4\u2660', '5\u2665', '6\u2666', '7\u2663', 'K\u2660'],
+      pots: { mainPot: 2000, sidePots: [] },
+      totalPot: 2000,
+      currentPosition: 0,
+      players: [
+        { playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', seatPosition: 0, chips: 0, bet: 0, holeCards: ['8\u2660', '2\u2665'] },
+        { playerId: 'human-2', nickname: 'Other', avatar: '#3498db', seatPosition: 1, chips: 0, bet: 0, holeCards: null },
+      ],
+    },
+  });
+
+  listeners['game:showdown']({
+    results: [
+      { position: 0, playerId: 'human-1', cards: ['8\u2660', '2\u2665'], handName: '\u987a\u5b50' },
+      { position: 1, playerId: 'human-2', cards: ['4\u2663', '4\u2666'], handName: '\u4e00\u5bf9' },
+    ],
+  });
+  listeners['game:ended']({
+    handResults: [
+      { playerId: 'human-1', position: 0, nickname: 'Host', delta: 1000, chips: 2000, isWinner: true },
+      { playerId: 'human-2', position: 1, nickname: 'Other', delta: -1000, chips: 0, isWinner: false },
+    ],
+  });
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      awaitingNextHandReady: true,
+      seats: [
+        { position: 0, playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', chips: 2000, isReady: false, status: 'occupied' },
+        { position: 1, playerId: 'human-2', nickname: 'Other', avatar: '#3498db', chips: 0, isReady: false, status: 'occupied' },
+      ],
+    },
+  });
+
+  const firstSeatInner = elements.get('seats-ring').children[0].querySelector('.seat-inner');
+  const secondSeatInner = elements.get('seats-ring').children[1].querySelector('.seat-inner');
+  assert.equal(firstSeatInner.querySelector('.seat-hand-name').textContent, '\u987a\u5b50');
+  assert.equal(secondSeatInner.querySelector('.seat-hand-name').textContent, '\u4e00\u5bf9');
+});
+
 test('game ended renders seat deltas without opening the result modal', () => {
   const { elements, listeners, socketCalls } = loadTableView();
 
@@ -266,6 +357,64 @@ test('game ended renders seat deltas without opening the result modal', () => {
   assert.match(elements.get('seats-ring').children[1].className, /seat-winner/);
   assert.deepEqual(socketCalls.ready, []);
   assert.equal(socketCalls.startGame, 0);
+});
+
+test('room state chip updates are not overwritten by lingering hand result labels', () => {
+  const { elements, listeners } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      awaitingNextHandReady: true,
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 0,
+          isReady: false,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  listeners['game:ended']({
+    handResults: [
+      { playerId: 'human-1', position: 0, nickname: 'Host', delta: -1000, chips: 0, isWinner: false },
+    ],
+  });
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      awaitingNextHandReady: true,
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 1000,
+          isReady: false,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  const seatInner = elements.get('seats-ring').children[0].querySelector('.seat-inner');
+  assert.equal(seatInner.querySelector('.seat-chips').textContent, '楼1,000');
+  assert.match(seatInner.querySelector('.seat-hand-result').textContent, /-¥1,000/);
 });
 
 test('next hand action button borrows first, then readies after chips are available', () => {

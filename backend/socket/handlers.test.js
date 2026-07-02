@@ -160,7 +160,7 @@ test('pot event includes current player bets for table chip records', () => {
   ]);
 });
 
-test('action progress events reveal live player cards when an all-in starts public reveal', () => {
+test('action progress events do not reveal cards just because a payload contains hole cards', () => {
   const beforeGame = {
     status: 'preflop',
     communityCards: [],
@@ -175,8 +175,8 @@ test('action progress events reveal live player cards when an all-in starts publ
     pots: { mainPot: 1030, sidePots: [] },
     totalPot: 1030,
     players: [
-      { playerId: 'human-1', seatPosition: 0, folded: false, holeCards: ['A\u2660', 'K\u2665'] },
-      { playerId: 'human-2', seatPosition: 1, folded: false, holeCards: ['Q\u2663', 'Q\u2666'] },
+      { playerId: 'human-1', seatPosition: 0, folded: false, allIn: true, holeCards: ['A\u2660', 'K\u2665'] },
+      { playerId: 'human-2', seatPosition: 1, folded: false, allIn: false, holeCards: ['Q\u2663', 'Q\u2666'] },
     ],
   };
 
@@ -187,10 +187,44 @@ test('action progress events reveal live player cards when an all-in starts publ
   );
 
   const showdown = events.find(item => item.event === EVENTS.SERVER.GAME_SHOWDOWN);
+  assert.equal(showdown, undefined);
+});
+
+test('action progress events reveal live player cards when betting is over at showdown', () => {
+  const beforeGame = {
+    status: 'preflop',
+    communityCards: [],
+    players: [
+      { playerId: 'human-1', seatPosition: 0, folded: false, holeCards: null },
+      { playerId: 'human-2', seatPosition: 1, folded: false, holeCards: null },
+    ],
+  };
+  const afterGame = {
+    status: 'ended',
+    communityCards: ['2\u2660', '3\u2665', '4\u2666', '5\u2663', '9\u2660'],
+    pots: { mainPot: 2000, sidePots: [] },
+    totalPot: 2000,
+    players: [
+      { playerId: 'human-1', seatPosition: 0, folded: false, allIn: true, holeCards: ['A\u2660', 'K\u2665'] },
+      { playerId: 'human-2', seatPosition: 1, folded: false, allIn: true, holeCards: ['Q\u2663', 'Q\u2666'] },
+    ],
+    showdownResults: [
+      { position: 0, playerId: 'human-1', cards: ['A\u2660', 'K\u2665'], handName: '顺子' },
+      { position: 1, playerId: 'human-2', cards: ['Q\u2663', 'Q\u2666'], handName: '一对' },
+    ],
+  };
+
+  const events = _buildActionProgressEvents(
+    beforeGame,
+    afterGame,
+    { position: 1, type: 'allin', amount: 1000 }
+  );
+
+  const showdown = events.find(item => item.event === EVENTS.SERVER.GAME_SHOWDOWN);
   assert.deepEqual(showdown.payload, {
     results: [
-      { position: 0, playerId: 'human-1', cards: ['A\u2660', 'K\u2665'], handName: null },
-      { position: 1, playerId: 'human-2', cards: ['Q\u2663', 'Q\u2666'], handName: null },
+      { position: 0, playerId: 'human-1', cards: ['A\u2660', 'K\u2665'], handName: '顺子' },
+      { position: 1, playerId: 'human-2', cards: ['Q\u2663', 'Q\u2666'], handName: '一对' },
     ],
   });
 });
@@ -248,5 +282,34 @@ test('next hand auto-starts when every seated player is ready', async () => {
   assert.equal(room.status, 'playing');
   assert.equal(room.awaitingNextHandReady, false);
   assert.equal(game.status, 'preflop');
+  assert.ok(io.events.some(item => item.event === EVENTS.SERVER.GAME_STARTED));
+});
+
+test('next hand auto-start lends one initial stack to broke seated AI', async () => {
+  await createPlayer('human-1', 0);
+  await createPlayer('bot-1', 1);
+  await store.createRoom({
+    ...createRoom(),
+    status: 'waiting',
+    currentGameId: null,
+    awaitingNextHandReady: true,
+    players: [
+      { playerId: 'human-1', nickname: 'Human One', avatar: '#111', seatPosition: 0, isReady: true, chips: 1000, buyInTotal: 1000, borrowCount: 0, isAI: false },
+      { playerId: 'bot-1', nickname: 'Bot One', avatar: '#222', seatPosition: 1, isReady: false, chips: 0, buyInTotal: 1000, borrowCount: 0, isAI: true },
+    ],
+    seats: ['human-1', 'bot-1', null, null, null, null, null, null, null],
+  });
+  const io = createIoRecorder();
+
+  const started = await _maybeAutoStartNextHand(io, 'ROOM01');
+
+  const room = await store.getRoom('ROOM01');
+  const game = await store.getGame('ROOM01');
+  const botRoomPlayer = room.players.find(p => p.playerId === 'bot-1');
+  assert.equal(started, true);
+  assert.equal(room.status, 'playing');
+  assert.equal(botRoomPlayer.buyInTotal, 2000);
+  assert.equal(botRoomPlayer.borrowCount, 1);
+  assert.equal(game.players.find(p => p.playerId === 'bot-1').startingChips, 1000);
   assert.ok(io.events.some(item => item.event === EVENTS.SERVER.GAME_STARTED));
 });

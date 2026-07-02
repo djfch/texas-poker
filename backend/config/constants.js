@@ -116,6 +116,20 @@ const constants = Object.freeze({
     10: 'High Card'
   }),
 
+  // 中文牌型名称（摊牌时显示）
+  HAND_NAMES_CN: Object.freeze({
+    1: '皇家同花顺',
+    2: '同花顺',
+    3: '四条',
+    4: '葫芦',
+    5: '同花',
+    6: '顺子',
+    7: '三条',
+    8: '两对',
+    9: '一对',
+    10: '高牌'
+  }),
+
   // ─── Betting Rules ─────────────────────────────────────────────
   MIN_RAISE_MULTIPLIER: 2  // Minimum raise = 2 × last raise increment
 });

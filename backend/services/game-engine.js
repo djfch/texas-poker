@@ -13,6 +13,7 @@ const {
   ACTION_TIMEOUT_MS,
   MIN_PLAYERS,
   MAX_SEATS,
+  HAND_NAMES_CN,
 } = require('../config/constants');
 
 class GameEngine {
@@ -623,9 +624,11 @@ class GameEngine {
       // Use PotManager's distribute method
       const handResults = activePlayers.map(player => {
         const hand = [...player.holeCards, ...game.communityCards];
+        const handResult = HandEvaluator.evaluate(hand);
         return {
           position: player.seatPosition,
-          handResult: HandEvaluator.evaluate(hand),
+          handResult,
+          handName: HAND_NAMES_CN[handResult.rank] || handResult.name,
         };
       });
 
@@ -655,6 +658,7 @@ class GameEngine {
 
     game.status = 'ended';
     game.handResults = this._buildHandResults(game);
+    game.showdownResults = this._buildShowdownResults(game);
 
     this._clearTimeout(game);
 
@@ -704,7 +708,8 @@ class GameEngine {
   _sanitizeGameState(game, includeHoleCards = false, viewerId = null) {
     const potData = game.pots.calculatePots();
     const isFinished = game.status === 'showdown' || game.status === 'ended';
-    const shouldRevealAllInHands = game.players.some(p => !p.folded && p.allIn);
+    const activePlayers = game.players.filter(p => !p.folded);
+    const shouldRevealAllInHands = activePlayers.length > 0 && activePlayers.every(p => p.allIn);
 
     return {
       status: game.status,
@@ -735,6 +740,7 @@ class GameEngine {
       })),
       winners: game.winners || null,
       handResults: game.handResults || null,
+      showdownResults: game.showdownResults || null,
     };
   }
 
@@ -749,6 +755,28 @@ class GameEngine {
       delta: player.chips - player.startingChips,
       isWinner: winnerIds.has(player.playerId),
     }));
+  }
+
+  _buildShowdownResults(game) {
+    const winnerIds = new Set((game.winners || []).map(w => w.playerId));
+    return game.players
+      .filter(player => !player.folded)
+      .map(player => {
+        const allCards = [...player.holeCards, ...game.communityCards];
+        let handName = null;
+        if (allCards.length >= 5) {
+          const handResult = HandEvaluator.evaluate(allCards);
+          handName = HAND_NAMES_CN[handResult.rank] || handResult.name;
+        }
+        return {
+          playerId: player.playerId,
+          position: player.seatPosition,
+          nickname: player.nickname,
+          cards: player.holeCards.map(c => c.toString()),
+          handName,
+          isWinner: winnerIds.has(player.playerId),
+        };
+      });
   }
 
   _isAIPlayer(player) {
