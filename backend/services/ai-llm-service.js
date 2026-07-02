@@ -21,7 +21,7 @@ const {
 
 const aiRuleEngine = require('./ai-rule-engine');
 
-const JSON_OUTPUT_MIN_TOKENS = 512;
+const JSON_OUTPUT_MIN_TOKENS = 4096;
 const JSON_DECISION_MAX_RETRIES = 2;
 
 class AiLlmService {
@@ -68,7 +68,7 @@ class AiLlmService {
    */
   async _callLlm(prompt) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), this._requestTimeoutMs());
 
     try {
       const response = await fetch(`${AI_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
@@ -111,12 +111,14 @@ class AiLlmService {
       max_tokens: Math.max(AI_MAX_TOKENS, JSON_OUTPUT_MIN_TOKENS),
       response_format: { type: 'json_object' },
       thinking: { type: 'enabled' },
-      reasoning_effort: 'max',
-      output_config: { effort: 'max' },
       stream: false,
     };
 
     return body;
+  }
+
+  _requestTimeoutMs() {
+    return AI_TIMEOUT_MS;
   }
 
   _systemPrompt() {

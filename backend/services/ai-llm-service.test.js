@@ -106,7 +106,7 @@ test('LLM parser accepts a JSON object inside a markdown code block', () => {
   });
 });
 
-test('LLM request body enables max thinking and requires Chinese reason output', () => {
+test('LLM request body enables thinking without effort controls and requires Chinese reason output', () => {
   const prompt = 'Return json only.';
   const body = aiLlmService._buildRequestBody(prompt, {
     baseUrl: 'https://api.deepseek.com',
@@ -115,12 +115,16 @@ test('LLM request body enables max thinking and requires Chinese reason output',
 
   assert.deepEqual(body.response_format, { type: 'json_object' });
   assert.deepEqual(body.thinking, { type: 'enabled' });
-  assert.equal(body.reasoning_effort, 'max');
-  assert.deepEqual(body.output_config, { effort: 'max' });
-  assert.ok(body.max_tokens >= 512);
+  assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
+  assert.equal(Object.hasOwn(body, 'output_config'), false);
+  assert.ok(body.max_tokens >= 4096);
   assert.match(body.messages[0].content, /json/);
   assert.match(body.messages[0].content, /reason.*中文/);
   assert.match(body.messages[0].content, /\{"action":"call","amount":0,"reason":"[^"]+"\}/);
+});
+
+test('LLM request timeout is ten seconds', () => {
+  assert.equal(aiLlmService._requestTimeoutMs(), 10000);
 });
 
 test('LLM retry prompt also requires the JSON reason field to be Chinese', () => {

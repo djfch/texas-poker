@@ -38,7 +38,7 @@ const constants = Object.freeze({
   AI_BASE_URL: process.env.AI_BASE_URL || 'https://api.openai.com/v1',
   AI_API_KEY: process.env.AI_API_KEY || '',
   AI_MODEL: process.env.AI_MODEL || 'gpt-4o-mini',
-  AI_TIMEOUT_MS: parseInt(process.env.AI_TIMEOUT_MS, 10) || 15000,
+  AI_TIMEOUT_MS: parseInt(process.env.AI_TIMEOUT_MS, 10) || 10000,
   AI_TEMPERATURE: parseFloat(process.env.AI_TEMPERATURE) || 0.4,
   AI_MAX_TOKENS: parseInt(process.env.AI_MAX_TOKENS, 10) || 256,
   AI_FALLBACK_ENABLED: (process.env.AI_FALLBACK_ENABLED || 'true').toLowerCase() === 'true',
