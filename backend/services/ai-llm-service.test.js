@@ -211,6 +211,35 @@ test('LLM raw response log includes the AI player name and returned content', as
   }
 });
 
+test('LLM raw response log includes timestamp and full returned content', async () => {
+  const state = createDecisionState();
+  const originalEnabled = aiLlmService.isEnabled;
+  const originalCall = aiLlmService._callLlm;
+  const originalLog = console.log;
+  const logs = [];
+  const longReason = 'x'.repeat(1400);
+  const content = `{"action":"call","amount":0,"reason":"${longReason}"}`;
+
+  try {
+    aiLlmService.isEnabled = () => true;
+    aiLlmService._callLlm = async () => ({ content, finishReason: 'stop' });
+    console.log = (...args) => logs.push(args.join(' '));
+
+    const decision = await aiLlmService.decide(state, 'bot-1');
+
+    assert.equal(decision.type, 'call');
+    const rawLog = logs.find(line => line.includes('[AI-LLM] Raw response for Bot-One'));
+    assert.ok(rawLog);
+    assert.match(rawLog, /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[AI-LLM\]/);
+    assert.ok(rawLog.includes(content));
+    assert.equal(rawLog.includes('<truncated'), false);
+  } finally {
+    aiLlmService.isEnabled = originalEnabled;
+    aiLlmService._callLlm = originalCall;
+    console.log = originalLog;
+  }
+});
+
 test('AI manager handles LLM failure without circular rule fallback dependency', async () => {
   clearAIModuleCache();
   const aiManager = require('./ai-manager');

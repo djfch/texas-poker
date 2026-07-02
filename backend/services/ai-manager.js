@@ -34,9 +34,8 @@ class AIManager {
     if (position < 0 || position >= MAX_SEATS) return null;
     if (room.seats[position]) return null;
 
-    const name = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)];
     const botStyle = style || AI_STYLES[Math.floor(Math.random() * AI_STYLES.length)];
-    const nickname = `Bot-${name}`;
+    const nickname = this._generateUniqueBotNickname(room);
     const avatar = '/assets/bot-avatar.png';
 
     const botPlayer = await playerManager.createGuest(null);
@@ -87,6 +86,29 @@ class AIManager {
 
   decideWithRules(gameState, playerId) {
     return aiRuleEngine.decide(gameState, playerId);
+  }
+
+  _generateUniqueBotNickname(room) {
+    const existingNicknames = new Set(
+      (room.players || [])
+        .map(player => String(player.nickname || '').trim())
+        .filter(Boolean)
+    );
+    const availableNames = AI_NAMES.filter(name => !existingNicknames.has(`Bot-${name}`));
+
+    if (availableNames.length > 0) {
+      const name = availableNames[Math.floor(Math.random() * availableNames.length)];
+      return `Bot-${name}`;
+    }
+
+    for (let suffix = 2; suffix < 100; suffix++) {
+      for (const name of AI_NAMES) {
+        const nickname = `Bot-${name}-${suffix}`;
+        if (!existingNicknames.has(nickname)) return nickname;
+      }
+    }
+
+    return `Bot-${Date.now()}`;
   }
 }
 

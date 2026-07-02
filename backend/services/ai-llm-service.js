@@ -56,7 +56,9 @@ class AiLlmService {
         reason: decision.reason,
       };
     } catch (err) {
-      console.error(`[AI-LLM] Decision failed for ${this._playerLabel(player, gameState, playerId)}:`, err.message);
+      console.error(this._formatLogMessage(
+        `Decision failed for ${this._playerLabel(player, gameState, playerId)}: ${err.message}`
+      ));
       return this._foldAfterLlmFailure(err);
     }
   }
@@ -336,11 +338,11 @@ Decide your action. Return one complete valid minified json object only.`;
           throw err;
         }
         const finishReason = result?.finishReason;
-        console.warn(
-          `[AI-LLM] Retrying decision for ${this._playerLabel(player)} ` +
+        console.warn(this._formatLogMessage(
+          `Retrying decision for ${this._playerLabel(player)} ` +
           `(${attempt + 2}/${JSON_DECISION_MAX_RETRIES + 1}) after ${err.message}` +
           (finishReason ? ` (finish_reason=${finishReason})` : '')
-        );
+        ));
         requestPrompt = this._buildRetryPrompt(prompt, err, result || {});
       }
     }
@@ -376,8 +378,14 @@ Return ONLY one complete minified valid json object in this exact shape:
     const result = this._normalizeLlmResult(rawResult);
     const finish = result.finishReason ? ` finish_reason=${result.finishReason}` : '';
     console.log(
-      `[AI-LLM] Raw response for ${this._playerLabel(player)} (${AI_PROVIDER}/${AI_MODEL})${finish}: ${this._truncateForLog(result.content)}`
+      this._formatLogMessage(
+        `Raw response for ${this._playerLabel(player)} (${AI_PROVIDER}/${AI_MODEL})${finish}: ${result.content}`
+      )
     );
+  }
+
+  _formatLogMessage(message) {
+    return `[${new Date().toISOString()}] [AI-LLM] ${message}`;
   }
 
   _isDeepSeekRequest(baseUrl, model) {
@@ -389,11 +397,6 @@ Return ONLY one complete minified valid json object in this exact shape:
     return resolved?.nickname || resolved?.playerId || playerId || 'unknown-ai';
   }
 
-  _truncateForLog(value, maxLength = 1000) {
-    const text = String(value ?? '');
-    if (text.length <= maxLength) return text;
-    return `${text.slice(0, maxLength)}...<truncated ${text.length - maxLength} chars>`;
-  }
 }
 
 module.exports = new AiLlmService();
