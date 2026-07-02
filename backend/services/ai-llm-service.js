@@ -101,7 +101,6 @@ class AiLlmService {
 
   _buildRequestBody(prompt, overrides = {}) {
     const model = overrides.model || AI_MODEL;
-    const baseUrl = overrides.baseUrl || AI_BASE_URL;
     const body = {
       model,
       messages: [
@@ -111,12 +110,11 @@ class AiLlmService {
       temperature: AI_TEMPERATURE,
       max_tokens: Math.max(AI_MAX_TOKENS, JSON_OUTPUT_MIN_TOKENS),
       response_format: { type: 'json_object' },
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+      output_config: { effort: 'max' },
       stream: false,
     };
-
-    if (this._isDeepSeekRequest(baseUrl, model)) {
-      body.thinking = { type: 'disabled' };
-    }
 
     return body;
   }
@@ -126,13 +124,13 @@ class AiLlmService {
 Your job is to decide the best action based on the game state provided.
 Respond ONLY with one complete valid minified json object. Do not use markdown, code fences, comments, trailing commas, or extra text.
 Example valid json output:
-{"action":"call","amount":0,"reason":"pot odds ok"}
+{"action":"call","amount":0,"reason":"底池赔率合适"}
 Rules:
 - Choose only from the server-provided legal_actions.actions list.
 - The json object must contain exactly these keys: action, amount, reason.
 - "action" must be one of: "fold", "check", "call", "raise", "allin".
 - "amount" must be a number.
-- "reason" must be a short string.
+- "reason" must be a short Chinese string. The final returned json object's reason field must be written in 中文.
 - "amount" is required for "raise" and represents the total chips you want to put in this round (must be at least current bet + minimum raise).
 - For "raise", amount must be between legal_actions.min_raise and legal_actions.max_raise.
 - For "fold", "check", "call", "allin", set amount to 0.
@@ -371,7 +369,7 @@ Decide your action. Return one complete valid minified json object only.`;
 
 The previous model output was invalid for this reason: ${err.message}${result.finishReason ? `, finish_reason=${result.finishReason}` : ''}.
 Return ONLY one complete minified valid json object in this exact shape:
-{"action":"fold","amount":0,"reason":"short reason"}`;
+{"action":"fold","amount":0,"reason":"理由必须为中文"}`;
   }
 
   _logRawResponse(player, rawResult) {
@@ -386,10 +384,6 @@ Return ONLY one complete minified valid json object in this exact shape:
 
   _formatLogMessage(message) {
     return `[${new Date().toISOString()}] [AI-LLM] ${message}`;
-  }
-
-  _isDeepSeekRequest(baseUrl, model) {
-    return /deepseek/i.test(String(baseUrl)) || /deepseek/i.test(String(model));
   }
 
   _playerLabel(player, gameState = null, playerId = null) {

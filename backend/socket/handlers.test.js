@@ -5,6 +5,7 @@ const EVENTS = require('./events');
 const gameEngine = require('../services/game-engine');
 const store = require('../storage/memory-store');
 const {
+  setupSocketHandlers,
   _buildActionProgressEvents,
   _buildConnectedPayload,
   _maybeAutoStartNextHand,
@@ -66,6 +67,10 @@ function createIoRecorder() {
   const events = [];
   return {
     events,
+    handlers: {},
+    on(event, callback) {
+      this.handlers[event] = callback;
+    },
     to(target) {
       return {
         emit(event, payload) {
@@ -74,6 +79,37 @@ function createIoRecorder() {
       };
     },
   };
+}
+
+function createSocketRecorder(id, playerId) {
+  return {
+    id,
+    handshake: { query: { playerId } },
+    handlers: {},
+    joinedRooms: [],
+    leftRooms: [],
+    emitted: [],
+    on(event, callback) {
+      this.handlers[event] = callback;
+    },
+    emit(event, payload) {
+      this.emitted.push({ event, payload });
+    },
+    join(roomId) {
+      this.joinedRooms.push(roomId);
+    },
+    leave(roomId) {
+      this.leftRooms.push(roomId);
+    },
+  };
+}
+
+async function waitFor(predicate) {
+  for (let i = 0; i < 20; i++) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  assert.fail('Timed out waiting for condition');
 }
 
 test.afterEach(() => {
@@ -99,6 +135,31 @@ test('connected payload includes the socket-bound player profile', () => {
       chips: 1000,
     },
   });
+});
+
+test('waiting-room transport close keeps the player in room during reconnect window', async () => {
+  await createPlayer('human-1', 0);
+  await store.createRoom({
+    ...createRoom(),
+    status: 'waiting',
+    currentGameId: null,
+    gameStartedAt: null,
+  });
+  const io = createIoRecorder();
+  const socket = createSocketRecorder('socket-1', 'human-1');
+
+  setupSocketHandlers(io);
+  io.handlers.connection(socket);
+  await waitFor(() => socket.handlers.disconnect);
+
+  await socket.handlers.disconnect('transport close');
+
+  const room = await store.getRoom('ROOM01');
+  const player = await store.getPlayer('human-1');
+  assert.ok(room);
+  assert.ok(room.players.some(p => p.playerId === 'human-1'));
+  assert.equal(player.currentRoom, 'ROOM01');
+  assert.equal(player.isOnline, false);
 });
 
 test('action progress events include community cards when an AI action advances to the flop', () => {

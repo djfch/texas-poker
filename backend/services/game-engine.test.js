@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const gameEngine = require('./game-engine');
 const store = require('../storage/memory-store');
+const { Card } = require('../domain/card');
 
 function resetStore() {
   for (const game of store.games.values()) {
@@ -158,6 +159,40 @@ test('ended hands include winner seat position and nickname', async () => {
       amount: 30,
       payout: 30,
       hand: 'All others folded',
+    },
+  ]);
+});
+
+test('uncontested showdown does not evaluate a winner with missing hole cards', async () => {
+  resetStore();
+  await createPlayer('human-1', 0);
+  await createPlayer('human-2', 1);
+  await store.createRoom(createRoom());
+
+  assert.equal((await gameEngine.startGame('ROOM01')).success, true);
+  const game = await store.getGame('ROOM01');
+  game.status = 'river';
+  game.communityCards = [
+    new Card('spades', 'A'),
+    new Card('hearts', 'K'),
+    new Card('diamonds', 'Q'),
+    new Card('clubs', 'J'),
+    new Card('spades', '9'),
+  ];
+  game.players.find(p => p.playerId === 'human-2').holeCards = [];
+
+  const result = await gameEngine.handleAction('ROOM01', 'human-1', 'fold');
+
+  assert.equal(result.success, true);
+  assert.equal(result.game.status, 'ended');
+  assert.deepEqual(result.game.showdownResults, [
+    {
+      playerId: 'human-2',
+      position: 1,
+      nickname: 'Human Two',
+      cards: [],
+      handName: null,
+      isWinner: true,
     },
   ]);
 });

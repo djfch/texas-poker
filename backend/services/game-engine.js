@@ -762,9 +762,10 @@ class GameEngine {
     return game.players
       .filter(player => !player.folded)
       .map(player => {
-        const allCards = [...player.holeCards, ...game.communityCards];
+        const holeCards = Array.isArray(player.holeCards) ? player.holeCards : [];
+        const allCards = [...holeCards, ...game.communityCards];
         let handName = null;
-        if (allCards.length >= 5) {
+        if (allCards.length === 7) {
           const handResult = HandEvaluator.evaluate(allCards);
           handName = HAND_NAMES_CN[handResult.rank] || handResult.name;
         }
@@ -772,7 +773,7 @@ class GameEngine {
           playerId: player.playerId,
           position: player.seatPosition,
           nickname: player.nickname,
-          cards: player.holeCards.map(c => c.toString()),
+          cards: holeCards.map(c => c.toString()),
           handName,
           isWinner: winnerIds.has(player.playerId),
         };

@@ -438,13 +438,17 @@ async function handleConnection(socket, io) {
         const room = await roomManager.getRoom(roomId);
         const seatPosition = room?.players.find(p => p.playerId === player.id)?.seatPosition ?? -1;
 
-        // If game is playing, give reconnect window; otherwise leave immediately
-        if (room?.status === 'playing') {
+        if (room) {
+          if (disconnectTimers.has(player.id)) {
+            clearTimeout(disconnectTimers.get(player.id));
+          }
+
           const timer = setTimeout(async () => {
             disconnectTimers.delete(player.id);
             const stillOffline = !(await playerManager.getPlayerById(player.id))?.isOnline;
             if (stillOffline) {
               const result = await roomManager.leaveRoom(roomId, player.id);
+              if (!result.success) return;
               if (result.hostLeft) {
                 io.to(roomId).emit(EVENTS.SERVER.ROOM_SETTLED, {
                   roomId,
@@ -458,20 +462,8 @@ async function handleConnection(socket, io) {
               _broadcastRoomState(io, roomId);
             }
           }, DISCONNECT_TIMEOUT_MS);
+          if (typeof timer.unref === 'function') timer.unref();
           disconnectTimers.set(player.id, timer);
-        } else {
-          const result = await roomManager.leaveRoom(roomId, player.id);
-          if (result.hostLeft) {
-            io.to(roomId).emit(EVENTS.SERVER.ROOM_SETTLED, {
-              roomId,
-              settlements: result.settlements,
-              roomDeleted: true,
-              reason: 'host_left',
-            });
-            return;
-          }
-          io.to(roomId).emit(EVENTS.SERVER.PLAYER_LEFT, { position: seatPosition });
-          _broadcastRoomState(io, roomId);
         }
       }
     } catch (err) {
