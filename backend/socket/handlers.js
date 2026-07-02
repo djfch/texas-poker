@@ -620,42 +620,6 @@ async function _broadcastGameTurn(io, roomId) {
     playerId: currentPlayer.playerId,
   }, timeoutAt);
 
-  // If AI, schedule its decision
-  const currentUser = await playerManager.getPlayerById(currentPlayer.playerId);
-  if (currentUser?.isAI) {
-    const aiGameState = await gameEngine.getAIDecisionContext(roomId, currentPlayer.playerId);
-
-    // Avoid costly LLM calls when no human is left in the hand
-    const otherPlayers = game.players.filter(p => !p.folded && p.playerId !== currentPlayer.playerId);
-    const otherUsers = await Promise.all(otherPlayers.map(p => playerManager.getPlayerById(p.playerId)));
-    const hasHumanInHand = otherUsers.some(u => u && !u.isAI);
-
-    const decision = hasHumanInHand
-      ? await aiManager.decide(aiGameState, currentPlayer.playerId)
-      : aiManager.decideWithRules(aiGameState, currentPlayer.playerId);
-
-    setTimeout(async () => {
-      try {
-        const beforeGame = await gameEngine.getGameState(roomId, null);
-        const result = await gameEngine.handleAction(
-          roomId,
-          currentPlayer.playerId,
-          decision.type,
-          decision.amount
-        );
-        if (result.success) {
-          await _broadcastActionOutcome(io, roomId, beforeGame, result.game, {
-            position: currentPlayer.seatPosition,
-            type: decision.type,
-            amount: decision.amount,
-          });
-        }
-      } catch (err) {
-        console.error('[Socket] AI action error:', err);
-      }
-    }, decision.delayMs);
-  }
-
   // Send valid actions only to current player
   const validActions = await gameEngine.getValidActions(roomId, currentPlayer.playerId);
   const socketId = await store.getSocketByPlayerId(currentPlayer.playerId);
@@ -678,6 +642,47 @@ async function _broadcastGameTurn(io, roomId) {
     minRaise: game.minRaise,
     totalPot: game.totalPot,
   });
+
+  const currentUser = await playerManager.getPlayerById(currentPlayer.playerId);
+  if (currentUser?.isAI) {
+    _scheduleAiDecision(io, roomId, game, currentPlayer).catch(err => {
+      console.error('[Socket] AI action error:', err);
+    });
+  }
+}
+
+async function _scheduleAiDecision(io, roomId, game, currentPlayer) {
+  const aiGameState = await gameEngine.getAIDecisionContext(roomId, currentPlayer.playerId);
+
+  // Avoid costly LLM calls when no human is left in the hand
+  const otherPlayers = game.players.filter(p => !p.folded && p.playerId !== currentPlayer.playerId);
+  const otherUsers = await Promise.all(otherPlayers.map(p => playerManager.getPlayerById(p.playerId)));
+  const hasHumanInHand = otherUsers.some(u => u && !u.isAI);
+
+  const decision = hasHumanInHand
+    ? await aiManager.decide(aiGameState, currentPlayer.playerId)
+    : aiManager.decideWithRules(aiGameState, currentPlayer.playerId);
+
+  setTimeout(async () => {
+    try {
+      const beforeGame = await gameEngine.getGameState(roomId, null);
+      const result = await gameEngine.handleAction(
+        roomId,
+        currentPlayer.playerId,
+        decision.type,
+        decision.amount
+      );
+      if (result.success) {
+        await _broadcastActionOutcome(io, roomId, beforeGame, result.game, {
+          position: currentPlayer.seatPosition,
+          type: decision.type,
+          amount: decision.amount,
+        });
+      }
+    } catch (err) {
+      console.error('[Socket] AI action error:', err);
+    }
+  }, decision.delayMs);
 }
 
 async function _scheduleTurnTimeout(io, roomId, currentPlayer, timeoutAt) {

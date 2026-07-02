@@ -23,12 +23,13 @@ function resetStore() {
   store.playerSockets.clear();
 }
 
-async function createPlayer(id, seatPosition) {
+async function createPlayer(id, seatPosition, isAI = false) {
   const player = {
     id,
     nickname: id,
     avatar: '#2ecc71',
     chips: 1000,
+    isAI,
     isGuest: true,
     isOnline: true,
     currentRoom: 'ROOM01',
@@ -318,6 +319,80 @@ test('scheduled turn timeout auto-folds the current player and broadcasts the ac
   const after = await gameEngine.getGameState('ROOM01', null);
   assert.equal(after.status, 'ended');
   assert.ok(after.players.find(p => p.seatPosition === game.currentPosition).folded);
+});
+
+test('AI turn is broadcast before waiting for the LLM decision', async () => {
+  const aiManager = require('../services/ai-manager');
+  const originalDecide = aiManager.decide;
+  const originalDecideWithRules = aiManager.decideWithRules;
+  let resolveDecision;
+  const slowDecision = new Promise(resolve => {
+    resolveDecision = () => resolve({
+      type: 'check',
+      amount: 0,
+      delayMs: 0,
+      reason: 'diagnostic delay',
+    });
+  });
+
+  try {
+    await createPlayer('human-1', 0);
+    await createPlayer('bot-1', 1, true);
+    await createPlayer('human-2', 2);
+    await store.createRoom({
+      ...createRoom(),
+      maxPlayers: 3,
+      players: [
+        { playerId: 'human-1', nickname: 'Human One', avatar: '#111', seatPosition: 0, isReady: true, chips: 1000, isAI: false },
+        { playerId: 'bot-1', nickname: 'Bot One', avatar: '#222', seatPosition: 1, isReady: true, chips: 1000, isAI: true },
+        { playerId: 'human-2', nickname: 'Human Two', avatar: '#333', seatPosition: 2, isReady: true, chips: 1000, isAI: false },
+      ],
+      seats: ['human-1', 'bot-1', 'human-2', null, null, null, null, null, null],
+    });
+    const start = await gameEngine.startGame('ROOM01');
+    assert.equal(start.success, true);
+
+    const liveGame = await store.getGame('ROOM01');
+    if (liveGame.timeoutId) {
+      clearTimeout(liveGame.timeoutId);
+      liveGame.timeoutId = null;
+    }
+    liveGame.status = 'flop';
+    liveGame.currentPosition = 0;
+    liveGame.currentBet = 0;
+    liveGame.minRaise = 20;
+    liveGame.actionsTaken.clear();
+    for (const player of liveGame.players) {
+      player.bet = 0;
+    }
+
+    aiManager.decide = async () => slowDecision;
+    aiManager.decideWithRules = aiManager.decide;
+
+    const io = createIoRecorder();
+    const socket = createSocketRecorder('socket-1', 'human-1');
+    setupSocketHandlers(io);
+    io.handlers.connection(socket);
+    await waitFor(() => socket.handlers[EVENTS.CLIENT.GAME_ACTION]);
+
+    const actionPromise = socket.handlers[EVENTS.CLIENT.GAME_ACTION]({ type: 'check', amount: 0 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.ok(
+      io.events.some(item =>
+        item.event === EVENTS.SERVER.GAME_TURN && item.payload.position === 1
+      ),
+      'expected the AI turn to be broadcast before the delayed AI decision resolves'
+    );
+
+    resolveDecision();
+    await actionPromise;
+    await new Promise(resolve => setTimeout(resolve, 0));
+  } finally {
+    if (resolveDecision) resolveDecision();
+    aiManager.decide = originalDecide;
+    aiManager.decideWithRules = originalDecideWithRules;
+  }
 });
 
 test('next hand auto-starts when every seated player is ready', async () => {
