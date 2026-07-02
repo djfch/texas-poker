@@ -2,7 +2,8 @@
  * backend/services/ai-llm-service.js - LLM-based AI Decision Service
  *
  * Calls an OpenAI-compatible chat completions API to decide poker actions.
- * Falls back to rule-based AI when disabled, misconfigured, or on error.
+ * Falls back to rule-based AI when disabled or misconfigured.
+ * When the configured LLM keeps returning unusable decisions, the bot folds.
  */
 
 const {
@@ -18,7 +19,10 @@ const {
   AI_DELAY_MAX_MS,
 } = require('../config/constants');
 
-const aiManager = require('./ai-manager');
+const aiRuleEngine = require('./ai-rule-engine');
+
+const JSON_OUTPUT_MIN_TOKENS = 512;
+const JSON_DECISION_MAX_RETRIES = 2;
 
 class AiLlmService {
   isEnabled() {
@@ -33,17 +37,17 @@ class AiLlmService {
    * @returns {Promise<{type: string, amount?: number, delayMs: number, reason?: string}>}
    */
   async decide(gameState, playerId) {
+    let player = null;
     if (!this.isEnabled()) {
       return this._fallback(gameState, playerId, 'LLM not configured');
     }
 
     try {
-      const player = gameState.players.find(p => p.playerId === playerId);
+      player = gameState.players.find(p => p.playerId === playerId);
       if (!player) throw new Error('AI player not found in game state');
 
       const prompt = this._buildPrompt(gameState, player);
-      const raw = await this._callLlm(prompt);
-      const decision = this._parseDecision(raw, gameState, player);
+      const decision = await this._requestParsedDecision(prompt, gameState, player);
 
       return {
         type: decision.action,
@@ -52,8 +56,8 @@ class AiLlmService {
         reason: decision.reason,
       };
     } catch (err) {
-      console.error('[AI-LLM] Decision failed:', err.message);
-      return this._fallback(gameState, playerId, err.message);
+      console.error(`[AI-LLM] Decision failed for ${this._playerLabel(player, gameState, playerId)}:`, err.message);
+      return this._foldAfterLlmFailure(err);
     }
   }
 
@@ -71,16 +75,7 @@ class AiLlmService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${AI_API_KEY}`,
         },
-        body: JSON.stringify({
-          model: AI_MODEL,
-          messages: [
-            { role: 'system', content: this._systemPrompt() },
-            { role: 'user', content: prompt },
-          ],
-          temperature: AI_TEMPERATURE,
-          max_tokens: AI_MAX_TOKENS,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(this._buildRequestBody(prompt)),
         signal: controller.signal,
       });
 
@@ -90,30 +85,57 @@ class AiLlmService {
       }
 
       const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error('LLM returned empty content');
-      return content;
+      const choice = data.choices?.[0] || {};
+      return {
+        content: choice.message?.content || '',
+        finishReason: choice.finish_reason || null,
+        reasoningContent: choice.message?.reasoning_content || '',
+        usage: data.usage || null,
+      };
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
+  _buildRequestBody(prompt, overrides = {}) {
+    const model = overrides.model || AI_MODEL;
+    const baseUrl = overrides.baseUrl || AI_BASE_URL;
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: this._systemPrompt() },
+        { role: 'user', content: prompt },
+      ],
+      temperature: AI_TEMPERATURE,
+      max_tokens: Math.max(AI_MAX_TOKENS, JSON_OUTPUT_MIN_TOKENS),
+      response_format: { type: 'json_object' },
+      stream: false,
+    };
+
+    if (this._isDeepSeekRequest(baseUrl, model)) {
+      body.thinking = { type: 'disabled' };
+    }
+
+    return body;
+  }
+
   _systemPrompt() {
     return `You are an expert Texas Hold'em poker player. You are playing as one of the bots.
 Your job is to decide the best action based on the game state provided.
-Respond ONLY with a JSON object in this exact format:
-{
-  "action": "fold|check|call|raise|allin",
-  "amount": <number>,
-  "reason": "<short reasoning in Chinese or English>"
-}
+Respond ONLY with one complete valid minified json object. Do not use markdown, code fences, comments, trailing commas, or extra text.
+Example valid json output:
+{"action":"call","amount":0,"reason":"pot odds ok"}
 Rules:
 - Choose only from the server-provided legal_actions.actions list.
+- The json object must contain exactly these keys: action, amount, reason.
+- "action" must be one of: "fold", "check", "call", "raise", "allin".
+- "amount" must be a number.
+- "reason" must be a short string.
 - "amount" is required for "raise" and represents the total chips you want to put in this round (must be at least current bet + minimum raise).
 - For "raise", amount must be between legal_actions.min_raise and legal_actions.max_raise.
 - For "fold", "check", "call", "allin", set amount to 0.
 - If you don't have enough chips to call, choose "allin" or "fold".
-- Be concise. Your response must be valid JSON only.`;
+- Be concise. Your response must be valid json only.`;
   }
 
   _buildPrompt(gameState, player) {
@@ -145,7 +167,7 @@ Your style: ${player.aiStyle || 'balanced'}
 Server-calculated decision context:
 ${JSON.stringify(decisionContext, null, 2)}
 
-Decide your action. Return JSON only.`;
+Decide your action. Return one complete valid minified json object only.`;
   }
 
   _emptyActionHistory() {
@@ -160,8 +182,9 @@ Decide your action. Return JSON only.`;
   _parseDecision(raw, gameState, player) {
     let parsed;
     try {
-      parsed = JSON.parse(raw);
-    } catch {
+      parsed = JSON.parse(this._extractJsonObject(raw));
+    } catch (err) {
+      if (err.message === 'LLM returned empty content') throw err;
       throw new Error('LLM response is not valid JSON');
     }
 
@@ -223,8 +246,7 @@ Decide your action. Return JSON only.`;
     if (!AI_FALLBACK_ENABLED) {
       return { type: 'fold', amount: 0, delayMs: this._randomDelay(), reason };
     }
-    // Use rule-based directly to avoid recursive LLM fallback
-    const decision = aiManager.decideWithRules(gameState, playerId);
+    const decision = aiRuleEngine.decide(gameState, playerId);
     return {
       type: decision.type,
       amount: decision.amount,
@@ -233,8 +255,144 @@ Decide your action. Return JSON only.`;
     };
   }
 
+  _foldAfterLlmFailure(err) {
+    const attempts = err.aiDecisionAttempts || JSON_DECISION_MAX_RETRIES + 1;
+    return {
+      type: 'fold',
+      amount: 0,
+      delayMs: this._randomDelay(),
+      reason: `LLM failed after ${attempts} attempts: ${err.message}`,
+    };
+  }
+
   _randomDelay() {
     return AI_DELAY_MIN_MS + Math.floor(Math.random() * (AI_DELAY_MAX_MS - AI_DELAY_MIN_MS));
+  }
+
+  _extractJsonObject(raw) {
+    const text = String(raw ?? '').trim();
+    if (!text) throw new Error('LLM returned empty content');
+
+    try {
+      JSON.parse(text);
+      return text;
+    } catch {
+      // Continue with tolerant extraction below.
+    }
+
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) {
+      return fenced[1].trim();
+    }
+
+    const start = text.indexOf('{');
+    if (start === -1) return text;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const char = text[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === '{') depth += 1;
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+
+    return text;
+  }
+
+  async _requestParsedDecision(prompt, gameState, player) {
+    let lastError = null;
+    let requestPrompt = prompt;
+
+    for (let attempt = 0; attempt <= JSON_DECISION_MAX_RETRIES; attempt++) {
+      let result = null;
+
+      try {
+        result = this._normalizeLlmResult(await this._callLlm(requestPrompt));
+        this._logRawResponse(player, result);
+        return this._parseDecision(result.content, gameState, player);
+      } catch (err) {
+        lastError = err;
+        err.aiDecisionAttempts = attempt + 1;
+        if (attempt >= JSON_DECISION_MAX_RETRIES || !this._shouldRetryDecision(err, result)) {
+          throw err;
+        }
+        const finishReason = result?.finishReason;
+        console.warn(
+          `[AI-LLM] Retrying decision for ${this._playerLabel(player)} ` +
+          `(${attempt + 2}/${JSON_DECISION_MAX_RETRIES + 1}) after ${err.message}` +
+          (finishReason ? ` (finish_reason=${finishReason})` : '')
+        );
+        requestPrompt = this._buildRetryPrompt(prompt, err, result || {});
+      }
+    }
+
+    throw lastError || new Error('LLM response is not valid JSON');
+  }
+
+  _normalizeLlmResult(result) {
+    if (typeof result === 'string') {
+      return { content: result, finishReason: null, reasoningContent: '', usage: null };
+    }
+    return {
+      content: String(result?.content ?? ''),
+      finishReason: result?.finishReason || null,
+      reasoningContent: result?.reasoningContent || '',
+      usage: result?.usage || null,
+    };
+  }
+
+  _shouldRetryDecision(_err, _result) {
+    return true;
+  }
+
+  _buildRetryPrompt(prompt, err, result = {}) {
+    return `${prompt}
+
+The previous model output was invalid for this reason: ${err.message}${result.finishReason ? `, finish_reason=${result.finishReason}` : ''}.
+Return ONLY one complete minified valid json object in this exact shape:
+{"action":"fold","amount":0,"reason":"short reason"}`;
+  }
+
+  _logRawResponse(player, rawResult) {
+    const result = this._normalizeLlmResult(rawResult);
+    const finish = result.finishReason ? ` finish_reason=${result.finishReason}` : '';
+    console.log(
+      `[AI-LLM] Raw response for ${this._playerLabel(player)} (${AI_PROVIDER}/${AI_MODEL})${finish}: ${this._truncateForLog(result.content)}`
+    );
+  }
+
+  _isDeepSeekRequest(baseUrl, model) {
+    return /deepseek/i.test(String(baseUrl)) || /deepseek/i.test(String(model));
+  }
+
+  _playerLabel(player, gameState = null, playerId = null) {
+    const resolved = player || gameState?.players?.find(p => p.playerId === playerId);
+    return resolved?.nickname || resolved?.playerId || playerId || 'unknown-ai';
+  }
+
+  _truncateForLog(value, maxLength = 1000) {
+    const text = String(value ?? '');
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}...<truncated ${text.length - maxLength} chars>`;
   }
 }
 
