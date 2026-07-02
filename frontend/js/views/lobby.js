@@ -305,11 +305,9 @@ const LobbyView = (function() {
     if (App.player) {
       const avatar = document.getElementById('user-avatar');
       const nick = document.getElementById('user-nickname');
-      const chips = document.getElementById('user-chips');
 
       if (avatar) avatar.textContent = (App.player.nickname || 'G').charAt(0).toUpperCase();
       if (nick) nick.textContent = App.player.nickname || '访客';
-      if (chips) chips.textContent = '筹码: ¥' + (App.player.chips || 0).toLocaleString();
     }
   }
 

@@ -28,14 +28,17 @@ class GameEngine {
     // Sort by seat position for deterministic processing
     seated.sort((a, b) => a.seatPosition - b.seatPosition);
 
-    const initialChips = room.initialChips ?? 1000;
+    const brokePlayer = seated.find(p => (p.chips ?? 0) <= 0);
+    if (brokePlayer) {
+      return { success: false, error: `${brokePlayer.nickname || 'Player'} has no chips` };
+    }
 
     // Create PotManager with initial seats
     const potSeats = seated.map(p => ({
       position: p.seatPosition,
       totalBet: 0,
       status: 'active',
-      chips: p.chips ?? initialChips,
+      chips: p.chips,
     }));
 
     const game = {
@@ -50,7 +53,8 @@ class GameEngine {
         avatar: p.avatar,
         seatPosition: p.seatPosition,
         holeCards: [],
-        chips: p.chips ?? initialChips,
+        chips: p.chips,
+        startingChips: p.chips,
         bet: 0,
         totalBet: 0,
         folded: false,
@@ -109,7 +113,7 @@ class GameEngine {
 
     return {
       success: true,
-      game: this._sanitizeGameState(game, false),
+      game: this._sanitizeGameState(game, true, null),
     };
   }
 
@@ -124,11 +128,6 @@ class GameEngine {
     const currentPlayer = game.players.find(p => p.seatPosition === game.currentPosition);
     if (!currentPlayer || currentPlayer.playerId !== playerId) {
       return { success: false, error: 'Not your turn' };
-    }
-
-    if (game.timeoutId) {
-      clearTimeout(game.timeoutId);
-      game.timeoutId = null;
     }
 
     const toCall = game.currentBet - player.bet;
@@ -185,10 +184,12 @@ class GameEngine {
         historyAmount = this._placeBet(game, player, player.chips);
         if (player.bet > game.currentBet) {
           const oldCurrentBet = game.currentBet;
+          const raiseSize = player.bet - oldCurrentBet;
           game.currentBet = player.bet;
-          // If all-in is a raise, set minRaise to the increment
-          game.minRaise = Math.max(game.minRaise, player.bet - oldCurrentBet);
-          game.actionsTaken.clear();
+          if (raiseSize >= game.minRaise) {
+            game.minRaise = raiseSize;
+            game.actionsTaken.clear();
+          }
         }
         break;
 
@@ -196,19 +197,20 @@ class GameEngine {
         return { success: false, error: 'Invalid action' };
     }
 
+    this._clearTimeout(game);
     this._recordAction(game, player, historyAction, historyAmount);
     game.actionsTaken.add(playerId);
 
     if (await this._isRoundComplete(game)) {
       await this._advancePhase(game);
     } else {
-      this._nextPlayer(game);
+      await this._nextPlayer(game);
       this._startTimeout(game);
     }
 
     return {
       success: true,
-      game: this._sanitizeGameState(game, false),
+      game: this._sanitizeGameState(game, true, null),
     };
   }
 
@@ -279,21 +281,20 @@ class GameEngine {
     if (!room) return { success: false, error: 'Room not found' };
 
     // Persist dealer position for next hand rotation
-    const game = store.getGame(roomId);
+    const game = await store.getGame(roomId);
     if (game) {
-      room.dealerPosition = game.dealerPosition;
-      store.deleteGame(roomId);
+      this._clearTimeout(game);
+      await store.updateRoom(roomId, {
+        status: 'waiting',
+        currentGameId: null,
+        dealerPosition: game.dealerPosition,
+      });
+      await store.deleteGame(roomId);
+      return { success: true, room: await store.getRoom(roomId) };
     }
 
-    // Reset players who are still seated but have 0 chips
-    for (const p of room.players) {
-      if (p.seatPosition >= 0 && p.chips <= 0) {
-        p.chips = room.initialChips ?? 1000;
-      }
-    }
-
-    room.status = 'waiting';
-    return { success: true, room };
+    await store.updateRoom(roomId, { status: 'waiting', currentGameId: null });
+    return { success: true, room: await store.getRoom(roomId) };
   }
 
   // ─── Internal ──────────────────────────────────────────────────
@@ -360,24 +361,29 @@ class GameEngine {
 
     const toCall = game.currentBet - player.bet;
     const actions = [];
+    const addAction = (action) => {
+      if (!actions.some(item => item.type === action.type)) {
+        actions.push(action);
+      }
+    };
 
     if (toCall === 0) {
-      actions.push({ type: 'check' });
-      actions.push({
+      addAction({ type: 'check' });
+      addAction({
         type: 'bet',
         minAmount: game.minRaise,
         maxAmount: player.chips,
       });
     } else {
-      actions.push({ type: 'fold' });
+      addAction({ type: 'fold' });
       if (player.chips <= toCall) {
-        actions.push({ type: 'allin' });
+        addAction({ type: 'allin' });
       } else {
-        actions.push({
+        addAction({
           type: 'call',
           amount: toCall,
         });
-        actions.push({
+        addAction({
           type: 'raise',
           minAmount: game.currentBet + game.minRaise,
           maxAmount: player.chips + player.bet,
@@ -386,7 +392,7 @@ class GameEngine {
     }
 
     if (player.chips > 0) {
-      actions.push({ type: 'allin' });
+      addAction({ type: 'allin' });
     }
 
     return actions;
@@ -508,24 +514,26 @@ class GameEngine {
 
   async _nextPlayer(game) {
     const occupiedPositions = game.players.map(p => p.seatPosition).sort((a, b) => a - b);
-    const active = game.players.filter(p => !p.folded && !p.allIn);
-    if (active.length <= 1) {
+    const canAct = player => player && !player.folded && !player.allIn;
+    const active = game.players.filter(canAct);
+    if (active.length === 0) {
       await this._advancePhase(game);
       return;
     }
 
     const startPos = game.currentPosition;
     let nextPos = game.currentPosition;
-    do {
+    for (let i = 0; i < occupiedPositions.length; i++) {
       nextPos = this._findNextActiveSeat(nextPos, occupiedPositions);
-    } while (
-      nextPos !== startPos &&
-      nextPos !== null &&
-      (game.players.find(p => p.seatPosition === nextPos)?.folded ||
-        game.players.find(p => p.seatPosition === nextPos)?.allIn)
-    );
+      const nextPlayer = game.players.find(p => p.seatPosition === nextPos);
+      if (canAct(nextPlayer)) {
+        game.currentPosition = nextPos;
+        return;
+      }
+      if (nextPos === startPos) break;
+    }
 
-    game.currentPosition = nextPos;
+    await this._advancePhase(game);
   }
 
   async _isRoundComplete(game) {
@@ -553,10 +561,7 @@ class GameEngine {
     game.minRaise = bigBlind;
     game.actionsTaken.clear();
 
-    if (game.timeoutId) {
-      clearTimeout(game.timeoutId);
-      game.timeoutId = null;
-    }
+    this._clearTimeout(game);
 
     const active = game.players.filter(p => !p.folded);
     if (active.length <= 1) {
@@ -564,9 +569,8 @@ class GameEngine {
       return;
     }
 
-    // If everyone left is all-in, skip to showdown
-    if (active.every(p => p.allIn)) {
-      // Deal remaining community cards if needed
+    // If no more betting is possible, deal the rest of the board and go to showdown.
+    if (active.filter(p => !p.allIn).length <= 1) {
       while (game.communityCards.length < 5) {
         game.communityCards.push(...game.deck.deal(5 - game.communityCards.length));
       }
@@ -607,7 +611,14 @@ class GameEngine {
       const winner = activePlayers[0];
       const totalPot = game.pots.getTotalPot();
       winner.chips += totalPot;
-      game.winners = [{ playerId: winner.playerId, amount: totalPot, hand: 'All others folded' }];
+      game.winners = [{
+        playerId: winner.playerId,
+        position: winner.seatPosition,
+        nickname: winner.nickname,
+        amount: totalPot,
+        payout: totalPot,
+        hand: 'All others folded',
+      }];
     } else {
       // Use PotManager's distribute method
       const handResults = activePlayers.map(player => {
@@ -631,7 +642,10 @@ class GameEngine {
             const hr = handResults.find(h => h.position === parseInt(position));
             game.winners.push({
               playerId: player.playerId,
+              position: player.seatPosition,
+              nickname: player.nickname,
               amount,
+              payout: amount,
               hand: hr ? hr.handResult.name : 'Unknown',
             });
           }
@@ -640,38 +654,57 @@ class GameEngine {
     }
 
     game.status = 'ended';
+    game.handResults = this._buildHandResults(game);
 
-    if (game.timeoutId) {
-      clearTimeout(game.timeoutId);
-      game.timeoutId = null;
-    }
+    this._clearTimeout(game);
 
     const room = await store.getRoom(game.roomId);
     if (room) {
       for (const gp of game.players) {
         const rp = room.players.find(p => p.playerId === gp.playerId);
-        if (rp) rp.chips = gp.chips;
+        if (rp) {
+          rp.chips = gp.chips;
+          rp.isReady = this._isAIPlayer(rp) && (rp.chips ?? 0) > 0;
+        }
         const player = await store.getPlayer(gp.playerId);
-        if (player) player.chips = gp.chips;
+        if (player) {
+          player.chips = gp.chips;
+          player.isReady = this._isAIPlayer(rp || gp) && (gp.chips ?? 0) > 0;
+        }
       }
       room.status = 'waiting';
-      await store.updateRoom(game.roomId, { status: 'waiting' });
+      room.dealerPosition = game.dealerPosition;
+      room.awaitingNextHandReady = true;
+      await store.updateRoom(game.roomId, {
+        status: 'waiting',
+        currentGameId: null,
+        dealerPosition: game.dealerPosition,
+        awaitingNextHandReady: true,
+      });
     }
   }
 
   _startTimeout(game) {
-    if (game.timeoutId) clearTimeout(game.timeoutId);
+    this._clearTimeout(game);
     const currentPlayer = game.players.find(p => p.seatPosition === game.currentPosition);
-    if (!currentPlayer) return;
+    if (!currentPlayer || currentPlayer.folded || currentPlayer.allIn) return;
 
     game.timeoutId = setTimeout(() => {
       this.timeoutFold(game.roomId, currentPlayer.seatPosition);
     }, ACTION_TIMEOUT_MS);
   }
 
+  _clearTimeout(game) {
+    if (game.timeoutId) {
+      clearTimeout(game.timeoutId);
+      game.timeoutId = null;
+    }
+  }
+
   _sanitizeGameState(game, includeHoleCards = false, viewerId = null) {
     const potData = game.pots.calculatePots();
     const isFinished = game.status === 'showdown' || game.status === 'ended';
+    const shouldRevealAllInHands = game.players.some(p => !p.folded && p.allIn);
 
     return {
       status: game.status,
@@ -691,16 +724,38 @@ class GameEngine {
         avatar: p.avatar,
         seatPosition: p.seatPosition,
         chips: p.chips,
+        startingChips: p.startingChips,
         bet: p.bet,
         totalBet: p.totalBet,
         folded: p.folded,
         allIn: p.allIn,
-        holeCards: (includeHoleCards && (isFinished || p.playerId === viewerId)) ?
+        holeCards: (includeHoleCards && !p.folded && (isFinished || shouldRevealAllInHands || p.playerId === viewerId)) ?
           p.holeCards.map(c => c.toString()) :
           null,
       })),
       winners: game.winners || null,
+      handResults: game.handResults || null,
     };
+  }
+
+  _buildHandResults(game) {
+    const winnerIds = new Set((game.winners || []).map(w => w.playerId));
+    return game.players.map(player => ({
+      playerId: player.playerId,
+      position: player.seatPosition,
+      nickname: player.nickname,
+      chips: player.chips,
+      startingChips: player.startingChips,
+      delta: player.chips - player.startingChips,
+      isWinner: winnerIds.has(player.playerId),
+    }));
+  }
+
+  _isAIPlayer(player) {
+    return Boolean(player && (
+      player.isAI ||
+      (typeof player.nickname === 'string' && player.nickname.startsWith('Bot-'))
+    ));
   }
 }
 

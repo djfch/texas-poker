@@ -11,6 +11,7 @@ const TableView = (function() {
   let timerComponent = null;
   let timerContainerEl = null;
   let seatElements = {};
+  let lastHandResults = null;
 
   // 环形布局位置（相对于桌面的百分比）
   const SEAT_POSITIONS = [
@@ -31,6 +32,8 @@ const TableView = (function() {
 
     // 离开按钮
     document.getElementById('btn-table-leave').addEventListener('click', onLeaveTable);
+    document.getElementById('btn-table-borrow').addEventListener('click', onBorrowChips);
+    document.getElementById('btn-table-next-action').addEventListener('click', onNextHandAction);
 
     // 挂载操作栏
     ActionsComponent.mount(document.getElementById('action-bar'));
@@ -46,6 +49,8 @@ const TableView = (function() {
     SocketClient.on('game:showdown', onGameShowdown);
     SocketClient.on('game:ended', onGameEnded);
     SocketClient.on('room:state', onRoomState);
+    SocketClient.on('room:settlement', onRoomSettlement);
+    SocketClient.on('room:settled', onRoomSettled);
     SocketClient.on('game:state', onGameStateFull);
     SocketClient.on('error', onSocketError);
 
@@ -64,6 +69,7 @@ const TableView = (function() {
     roomData = null;
     myPosition = null;
     seatElements = {};
+    lastHandResults = null;
 
     // 清空桌面
     document.getElementById('seats-ring').innerHTML = '';
@@ -71,6 +77,8 @@ const TableView = (function() {
     document.getElementById('pot-display').innerHTML = '';
     document.getElementById('my-hole-cards').innerHTML = '';
     document.getElementById('action-bar').style.display = 'none';
+    document.getElementById('btn-table-borrow').style.display = 'none';
+    hideNextHandActionButton();
     cleanupTimer();
 
     // 请求完整状态
@@ -105,20 +113,60 @@ const TableView = (function() {
         myPosition = mySeat.position;
         document.getElementById('my-nickname').textContent = mySeat.nickname || '我';
         document.getElementById('my-chips').textContent = '¥' + (mySeat.chips || 0).toLocaleString();
+        updateBorrowButton(mySeat);
+        updateNextHandActionButton(mySeat);
 
         // If game is playing and we're seated but not at table view, redirect
         if (room.status === 'playing' && ['lobby', 'room'].includes(App.currentView)) {
           App.navigate('table', { roomId: room.id });
         }
+      } else {
+        updateBorrowButton(null);
+        updateNextHandActionButton(null);
       }
     }
 
     renderSeats(room.seats || []);
+    if (lastHandResults && room.awaitingNextHandReady) {
+      renderHandResults(lastHandResults);
+    }
+  }
+
+  function onRoomSettlement(data) {
+    if (App.currentView !== 'table') return;
+    if (data.type === 'borrow') {
+      App.showToast(`已借筹码 ¥${(roomData?.initialChips || 0).toLocaleString()}`, 'success');
+      return;
+    }
+
+    App.showSettlementModal(data, {
+      title: '离房结算',
+      onClose: () => {
+        App.currentRoom = null;
+        App.navigate('lobby');
+      },
+    });
+  }
+
+  function onRoomSettled(data) {
+    if (App.currentView !== 'table') return;
+    App.showSettlementModal(data, {
+      title: '房间结算',
+      onClose: () => {
+        App.currentRoom = null;
+        App.navigate('lobby');
+      },
+    });
   }
 
   function onGameStarted(data) {
     gameState = data.game || data;
+    lastHandResults = null;
     ActionsComponent.hide();
+    const modal = document.getElementById('modal-result');
+    if (modal) modal.style.display = 'none';
+    clearSeatHandResults();
+    hideNextHandActionButton();
     document.getElementById('community-cards').innerHTML = '';
     document.getElementById('pot-display').innerHTML = '';
     document.getElementById('my-hole-cards').innerHTML = '';
@@ -250,34 +298,57 @@ const TableView = (function() {
   function onGamePot(data) {
     // data: { mainPot, sidePots, totalPot }
     const potDisplay = document.getElementById('pot-display');
+    const visibleSidePots = getVisibleSidePots(data.sidePots, data.players);
     if (potDisplay.children.length === 0) {
-      PotComponent.mount(potDisplay, data.mainPot, data.sidePots);
+      PotComponent.mount(potDisplay, data.mainPot, visibleSidePots, data.totalPot);
     } else {
-      PotComponent.update(data.mainPot, data.sidePots);
+      PotComponent.update(data.mainPot, visibleSidePots, data.totalPot);
     }
 
-    // Update seat bet displays from gameState if available
-    if (gameState && gameState.players) {
-      gameState.players.forEach(p => {
-        updateSeatBet(p.seatPosition, p.bet || 0);
+    const betPlayers = Array.isArray(data.players)
+      ? data.players.map(p => ({
+        ...p,
+        seatPosition: p.seatPosition ?? p.position,
+      }))
+      : (gameState?.players || []);
+
+    if (gameState && Array.isArray(gameState.players) && Array.isArray(data.players)) {
+      betPlayers.forEach(snapshot => {
+        const player = gameState.players.find(p => p.playerId === snapshot.playerId || p.seatPosition === snapshot.seatPosition);
+        if (player) {
+          player.bet = snapshot.bet || 0;
+          player.totalBet = snapshot.totalBet || 0;
+          player.chips = snapshot.chips ?? player.chips;
+        }
       });
     }
+
+    betPlayers.forEach(p => {
+      updateSeatBet(p.seatPosition, p.bet || 0);
+      if (p.chips !== undefined) updateSeatChips(p.seatPosition, p.chips);
+      if (p.playerId === (App.player && App.player.id) && p.chips !== undefined) {
+        updateMyChips(p.chips);
+      }
+    });
   }
 
   function onGameShowdown(data) {
     // data: { results: [{ position, cards, handName }] }
     if (data.results) {
       data.results.forEach(r => {
+        const statePlayer = gameState?.players?.find(p => p.seatPosition === r.position || p.playerId === r.playerId);
+        if (statePlayer && r.cards) {
+          statePlayer.holeCards = r.cards;
+        }
+
         const seatEl = seatElements[r.position];
         if (seatEl) {
           if (r.cards && r.cards.length === 2) {
-            const cardsContainer = seatEl.querySelector('.seat-cards');
-            if (cardsContainer) {
-              cardsContainer.innerHTML = '';
-              r.cards.forEach(card => {
-                cardsContainer.appendChild(CardComponent.render(card, { small: true }));
-              });
-            }
+            const cardsContainer = getOrCreateSeatCardsContainer(seatEl);
+            cardsContainer.innerHTML = '';
+            r.cards.forEach(card => {
+              cardsContainer.appendChild(CardComponent.render(card, { small: true }));
+            });
           }
           if (r.handName) {
             const inner = seatEl.querySelector('.seat-inner');
@@ -295,31 +366,15 @@ const TableView = (function() {
   }
 
   function onGameEnded(data) {
-    // data: { winners: [{ position, payout }], nextHandDelay }
-    if (data.winners) {
-      data.winners.forEach(w => {
-        const seatEl = seatElements[w.position];
-        if (seatEl) {
-          seatEl.classList.add('seat-winner');
-          const inner = seatEl.querySelector('.seat-inner');
-          let winnerLabel = inner.querySelector('.seat-winner-amount');
-          if (!winnerLabel) {
-            winnerLabel = document.createElement('div');
-            winnerLabel.className = 'seat-winner-amount';
-            inner.appendChild(winnerLabel);
-          }
-          winnerLabel.textContent = '+¥' + (w.payout || w.amount || 0).toLocaleString();
-        }
-      });
-    }
+    const modal = document.getElementById('modal-result');
+    if (modal) modal.style.display = 'none';
+
+    const handResults = data.handResults || buildHandResultsFromWinners(data.winners || []);
+    lastHandResults = handResults;
+    renderHandResults(handResults);
 
     ActionsComponent.hide();
-
-    if (App.currentView === 'table') {
-      setTimeout(() => {
-        showResultModal(data);
-      }, 1500);
-    }
+    updateNextHandActionButton(getMySeat());
   }
 
   function onGameStateFull(data) {
@@ -330,8 +385,13 @@ const TableView = (function() {
       if (myPlayer) {
         myPosition = myPlayer.seatPosition;
         renderMyHoleCards(myPlayer.holeCards);
+        updateMyChips(myPlayer.chips || 0);
       }
       renderSeatsFromGameState(gameState);
+      gameState.players.forEach(p => {
+        updateSeatBet(p.seatPosition, p.bet || 0);
+        updateSeatChips(p.seatPosition, p.chips || 0);
+      });
     }
     if (gameState.communityCards) {
       const container = document.getElementById('community-cards');
@@ -342,7 +402,16 @@ const TableView = (function() {
     }
     if (gameState.pots) {
       const potDisplay = document.getElementById('pot-display');
-      PotComponent.mount(potDisplay, gameState.pots.mainPot, gameState.pots.sidePots);
+      PotComponent.mount(
+        potDisplay,
+        gameState.pots.mainPot,
+        getVisibleSidePots(gameState.pots.sidePots, gameState.players),
+        gameState.totalPot
+      );
+    }
+    if (gameState.handResults) {
+      lastHandResults = gameState.handResults;
+      renderHandResults(lastHandResults);
     }
   }
 
@@ -393,6 +462,7 @@ const TableView = (function() {
           avatar: player.avatar,
           chips: player.chips,
           status: player.folded ? 'folded' : (player.allIn ? 'allin' : 'occupied'),
+          holeCards: player.holeCards,
         };
       } else {
         seat = { position: pos, status: 'empty' };
@@ -406,7 +476,8 @@ const TableView = (function() {
     const pos = seat.position;
     const isMe = seat.playerId === (App.player && App.player.id);
     const isCurrentTurn = gameState && gameState.currentPosition === pos;
-    const showCards = gameState && (gameState.status === 'showdown' || gameState.status === 'ended');
+    const hasPublicCards = Boolean(gameState?.players?.some(p => !p.folded && Array.isArray(p.holeCards) && p.holeCards.length === 2));
+    const showCards = gameState && (gameState.status === 'showdown' || gameState.status === 'ended' || hasPublicCards);
 
     const existing = seatElements[pos];
     if (existing) {
@@ -439,16 +510,112 @@ const TableView = (function() {
     const seatEl = seatElements[position];
     if (!seatEl) return;
 
-    let betEl = seatEl.querySelector('.seat-bet');
+    const inner = seatEl.querySelector('.seat-inner');
+    if (!inner) return;
+
+    let betEl = inner.querySelector('.seat-bet') || seatEl.querySelector('.seat-bet');
     if (amount > 0) {
       if (!betEl) {
         betEl = document.createElement('div');
         betEl.className = 'seat-bet';
-        seatEl.querySelector('.seat-inner').appendChild(betEl);
+        inner.appendChild(betEl);
       }
       betEl.innerHTML = `<span class="seat-bet-amount">¥${amount.toLocaleString()}</span>`;
     } else if (betEl) {
       betEl.remove();
+    }
+  }
+
+  function updateSeatChips(position, amount) {
+    const seatEl = seatElements[position];
+    if (!seatEl) return;
+
+    const chipsEl = seatEl.querySelector('.seat-chips');
+    if (chipsEl) {
+      chipsEl.textContent = '¥' + (Number(amount) || 0).toLocaleString();
+    }
+  }
+
+  function getVisibleSidePots(sidePots, players = []) {
+    if (!Array.isArray(sidePots) || sidePots.length === 0) return [];
+
+    const snapshots = Array.isArray(players) ? players : [];
+    const hasAllInPlayer =
+      snapshots.some(p => p && p.allIn) ||
+      (gameState?.players || []).some(p => p && p.allIn) ||
+      Object.values(seatElements).some(el => el.className.split(/\s+/).includes('seat-allin'));
+
+    return hasAllInPlayer ? sidePots : [];
+  }
+
+  function getOrCreateSeatCardsContainer(seatEl) {
+    let cardsContainer = seatEl.querySelector('.seat-cards');
+    if (cardsContainer) return cardsContainer;
+
+    const inner = seatEl.querySelector('.seat-inner');
+    cardsContainer = document.createElement('div');
+    cardsContainer.className = 'seat-cards';
+    if (inner) {
+      inner.appendChild(cardsContainer);
+    } else {
+      seatEl.appendChild(cardsContainer);
+    }
+    return cardsContainer;
+  }
+
+  function clearSeatHandResults() {
+    Object.values(seatElements).forEach(seatEl => {
+      seatEl.classList.remove('seat-winner', 'seat-loser');
+      const label = seatEl.querySelector('.seat-hand-result');
+      if (label) label.remove();
+    });
+  }
+
+  function renderHandResults(results) {
+    clearSeatHandResults();
+    (results || []).forEach(result => {
+      const position = result.position ?? result.seatPosition;
+      const seatEl = seatElements[position];
+      if (!seatEl) return;
+
+      const delta = Number(result.delta) || 0;
+      const isWinner = result.isWinner || delta > 0;
+      seatEl.classList.add(isWinner ? 'seat-winner' : 'seat-loser');
+      if (result.chips !== undefined) updateSeatChips(position, result.chips);
+
+      const inner = seatEl.querySelector('.seat-inner');
+      if (!inner) return;
+
+      let label = inner.querySelector('.seat-hand-result');
+      if (!label) {
+        label = document.createElement('div');
+        inner.appendChild(label);
+      }
+      label.className = `seat-hand-result ${delta >= 0 ? 'seat-result-positive' : 'seat-result-negative'}`;
+      label.textContent = formatSignedCurrency(delta);
+    });
+  }
+
+  function buildHandResultsFromWinners(winners) {
+    return (winners || []).map(w => ({
+      playerId: w.playerId,
+      position: w.position,
+      nickname: w.nickname,
+      delta: w.payout || w.amount || 0,
+      isWinner: true,
+    }));
+  }
+
+  function formatSignedCurrency(amount) {
+    const value = Number(amount) || 0;
+    const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+    return `${sign}¥${Math.abs(value).toLocaleString()}`;
+  }
+
+  function updateMyChips(amount) {
+    const myChipsEl = document.getElementById('my-chips');
+    if (myChipsEl) {
+      myChipsEl.textContent = '¥' + (Number(amount) || 0).toLocaleString();
     }
   }
 
@@ -491,55 +658,69 @@ const TableView = (function() {
 
   function onLeaveTable() {
     SocketClient.leaveRoom();
-    App.currentRoom = null;
-    App.navigate('lobby');
+  }
+
+  function onBorrowChips() {
+    SocketClient.borrowChips();
+  }
+
+  function onNextHandAction() {
+    const mySeat = getMySeat();
+    if (!mySeat) return;
+
+    if ((Number(mySeat.chips) || 0) <= 0) {
+      SocketClient.borrowChips();
+      return;
+    }
+
+    if (!mySeat.isReady) {
+      SocketClient.ready(true);
+    }
+  }
+
+  function updateBorrowButton(mySeat) {
+    const borrowBtn = document.getElementById('btn-table-borrow');
+    if (!borrowBtn) return;
+    borrowBtn.style.display = 'none';
+    borrowBtn.disabled = true;
   }
 
   // ============================================================
   // 结果弹窗
   // ============================================================
 
-  function showResultModal(data) {
-    const modal = document.getElementById('modal-result');
-    if (!modal) return;
-
-    const body = document.getElementById('result-body');
-    const title = document.getElementById('result-title');
-
-    const isWinner = data.winners && data.winners.some(w => w.position === myPosition);
-    title.textContent = isWinner ? '你赢了！' : '本局结束';
-
-    let html = '';
-    if (data.winners) {
-      html += '<div class="result-winners">';
-      data.winners.forEach(w => {
-        const seat = gameState?.players?.find(p => p.seatPosition === w.position);
-        const name = seat ? seat.nickname : `玩家 ${w.position + 1}`;
-        html += `<div class="result-winner">
-          <span class="result-winner-name">${escapeHtml(name)}</span>
-          <span class="result-winner-amount">+¥${(w.payout || w.amount || 0).toLocaleString()}</span>
-        </div>`;
-      });
-      html += '</div>';
-    }
-
-    body.innerHTML = html;
-    modal.style.display = 'flex';
-
-    const nextBtn = document.getElementById('btn-next-hand');
-    if (nextBtn) {
-      nextBtn.onclick = () => {
-        modal.style.display = 'none';
-        SocketClient.startGame();
-      };
-    }
+  function getMySeat() {
+    if (!roomData?.seats || !App.player) return null;
+    return roomData.seats.find(s => s.playerId === App.player.id) || null;
   }
 
-  function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+  function hideNextHandActionButton() {
+    const btn = document.getElementById('btn-table-next-action');
+    if (!btn) return;
+    btn.style.display = 'none';
+    btn.disabled = true;
+    btn.onclick = null;
+  }
+
+  function updateNextHandActionButton(mySeat) {
+    const btn = document.getElementById('btn-table-next-action');
+    if (!btn) return;
+
+    const canUse = Boolean(mySeat && roomData?.status !== 'playing' && roomData?.awaitingNextHandReady);
+    if (!canUse) {
+      hideNextHandActionButton();
+      return;
+    }
+
+    const chips = Number(mySeat.chips) || 0;
+    const isReady = Boolean(mySeat.isReady);
+    btn.style.display = 'inline-flex';
+    btn.disabled = chips > 0 && isReady;
+    btn.textContent = chips <= 0 ? '借筹码' : (isReady ? '已准备' : '准备');
+    btn.title = chips <= 0
+      ? `每次借初始筹码 ¥${(roomData?.initialChips || 0).toLocaleString()}`
+      : '所有玩家准备后自动开始下一局';
+    btn.onclick = onNextHandAction;
   }
 
   return {

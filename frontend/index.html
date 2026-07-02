@@ -5,18 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>德州扑克</title>
   <script src="/socket.io/socket.io.js"></script>
-  <link rel="stylesheet" href="css/base.css?v=20260701-2">
-  <link rel="stylesheet" href="css/lobby.css?v=20260701-2">
-  <link rel="stylesheet" href="css/room.css?v=20260701-2">
-  <link rel="stylesheet" href="css/table.css?v=20260701-2">
+  <link rel="stylesheet" href="css/base.css?v=20260702-2">
+  <link rel="stylesheet" href="css/lobby.css?v=20260702-2">
+  <link rel="stylesheet" href="css/room.css?v=20260702-2">
+  <link rel="stylesheet" href="css/table.css?v=20260702-2">
 </head>
 <body>
   <div id="app">
     <header id="app-header" class="app-header" style="display:none;">
-      <div class="user-info">
+      <div class="user-info" id="user-info">
         <div class="user-avatar" id="user-avatar"></div>
         <span class="user-nickname" id="user-nickname">访客</span>
-        <span class="user-chips" id="user-chips">筹码: ¥1,000</span>
       </div>
       <div class="header-title">德州扑克</div>
       <button class="btn-header" id="btn-leave" style="display:none;">离开</button>
@@ -63,6 +62,7 @@
           <div class="room-actions" id="room-actions">
             <button class="btn btn-primary" id="btn-room-ready">准备</button>
             <button class="btn btn-secondary" id="btn-room-add-ai" style="display:none;">添加AI</button>
+            <button class="btn btn-info" id="btn-room-borrow" style="display:none;">借筹码</button>
             <button class="btn btn-success" id="btn-room-start" style="display:none;">开始游戏</button>
             <button class="btn btn-danger" id="btn-room-leave">离开房间</button>
           </div>
@@ -102,6 +102,8 @@
             <div class="my-info">
               <span class="my-nickname" id="my-nickname">我</span>
               <span class="my-chips" id="my-chips">¥1,000</span>
+              <button class="btn btn-info btn-sm" id="btn-table-borrow" style="display:none;">借筹码</button>
+              <button class="btn btn-primary btn-sm table-next-action" id="btn-table-next-action" style="display:none;">准备</button>
             </div>
           </div>
 
@@ -199,19 +201,40 @@
         </div>
       </div>
     </div>
+
+    <!-- 修改玩家名称弹窗 -->
+    <div id="modal-profile" class="modal" style="display:none;">
+      <div class="modal-overlay" id="modal-profile-overlay"></div>
+      <div class="modal-content modal-small profile-modal-content">
+        <div class="modal-header">
+          <h3>修改玩家名称</h3>
+          <button class="modal-close" id="modal-close-profile">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="input-profile-nickname">玩家名称</label>
+            <input type="text" id="input-profile-nickname" class="input" maxlength="20" autocomplete="off">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-profile">取消</button>
+          <button class="btn btn-primary" id="btn-submit-profile">保存</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="js/api.js?v=20260701-2"></script>
-  <script src="js/socket-client.js?v=20260701-2"></script>
-  <script src="js/components/card.js?v=20260701-2"></script>
-  <script src="js/components/chips.js?v=20260701-2"></script>
-  <script src="js/components/pot.js?v=20260701-2"></script>
-  <script src="js/components/timer.js?v=20260701-2"></script>
-  <script src="js/components/seat.js?v=20260701-2"></script>
-  <script src="js/components/actions.js?v=20260701-2"></script>
-  <script src="js/views/lobby.js?v=20260701-2"></script>
-  <script src="js/views/room.js?v=20260701-2"></script>
-  <script src="js/views/table.js?v=20260701-2"></script>
-  <script src="js/app.js?v=20260701-2"></script>
+  <script src="js/api.js?v=20260702-2"></script>
+  <script src="js/socket-client.js?v=20260702-2"></script>
+  <script src="js/components/card.js?v=20260702-2"></script>
+  <script src="js/components/chips.js?v=20260702-2"></script>
+  <script src="js/components/pot.js?v=20260702-2"></script>
+  <script src="js/components/timer.js?v=20260702-2"></script>
+  <script src="js/components/seat.js?v=20260702-2"></script>
+  <script src="js/components/actions.js?v=20260702-2"></script>
+  <script src="js/views/lobby.js?v=20260702-2"></script>
+  <script src="js/views/room.js?v=20260702-2"></script>
+  <script src="js/views/table.js?v=20260702-2"></script>
+  <script src="js/app.js?v=20260702-2"></script>
 </body>
 </html>

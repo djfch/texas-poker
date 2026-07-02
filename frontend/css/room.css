@@ -126,6 +126,12 @@
   border-radius: 4px;
 }
 
+.room-seat-chips {
+  color: var(--color-chip-gold);
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .ready-badge {
   font-size: 11px;
   padding: 3px 10px;

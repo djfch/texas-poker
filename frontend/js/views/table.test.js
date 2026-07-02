@@ -59,6 +59,12 @@ function loadTableView() {
   const elements = new Map();
   const listeners = {};
   const renderedCards = [];
+  const potCalls = [];
+  const socketCalls = {
+    borrowChips: 0,
+    ready: [],
+    startGame: 0,
+  };
   const actions = {
     visible: false,
     hideCalls: 0,
@@ -104,22 +110,40 @@ function loadTableView() {
       },
     },
     PotComponent: {
-      mount() {},
-      update() {},
+      mount(container, mainPot, sidePots, totalPot) {
+        potCalls.push({ type: 'mount', mainPot, sidePots, totalPot });
+      },
+      update(mainPot, sidePots, totalPot) {
+        potCalls.push({ type: 'update', mainPot, sidePots, totalPot });
+      },
     },
     SeatComponent: {
-      render() {
-        return createElement();
+      render(seat) {
+        const el = createElement();
+        el.dataset.position = seat.position;
+        const inner = createElement();
+        inner.className = 'seat-inner';
+        el.appendChild(inner);
+        return el;
       },
       update() {},
     },
     SocketClient: {
+      borrowChips() {
+        socketCalls.borrowChips += 1;
+      },
       gameAction() {},
       leaveRoom() {},
       on(event, callback) {
         listeners[event] = callback;
       },
+      ready(isReady) {
+        socketCalls.ready.push(isReady);
+      },
       requestGameState() {},
+      startGame() {
+        socketCalls.startGame += 1;
+      },
     },
     TimerComponent: {
       create() {
@@ -135,7 +159,10 @@ function loadTableView() {
         };
       },
     },
-    setTimeout,
+    setTimeout(callback) {
+      callback();
+      return 1;
+    },
   };
 
   vm.runInNewContext(
@@ -144,8 +171,160 @@ function loadTableView() {
     { filename: 'table.js' }
   );
   context.__TableView.init();
-  return { actions, elements, listeners, renderedCards };
+  return { actions, elements, listeners, potCalls, renderedCards, socketCalls };
 }
+
+test('showdown creates a seat cards container when an opponent was previously hidden', () => {
+  const { elements, listeners } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 1000,
+          status: 'occupied',
+        },
+        {
+          position: 1,
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          chips: 1000,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  listeners['game:showdown']({
+    results: [
+      { position: 1, playerId: 'human-2', cards: ['Q\u2663', 'Q\u2666'], handName: null },
+    ],
+  });
+
+  const secondSeatInner = elements.get('seats-ring').children[1].querySelector('.seat-inner');
+  const cards = secondSeatInner.querySelector('.seat-cards');
+  assert.ok(cards);
+  assert.equal(cards.children.length, 2);
+});
+
+test('game ended renders seat deltas without opening the result modal', () => {
+  const { elements, listeners, socketCalls } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 990,
+          isReady: false,
+          status: 'occupied',
+        },
+        {
+          position: 1,
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          chips: 1010,
+          isReady: true,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  listeners['game:ended']({
+    handResults: [
+      { playerId: 'human-1', position: 0, nickname: 'Host', delta: -10, chips: 990, isWinner: false },
+      { playerId: 'human-2', position: 1, nickname: 'Other', delta: 10, chips: 1010, isWinner: true },
+    ],
+  });
+
+  const firstSeatInner = elements.get('seats-ring').children[0].querySelector('.seat-inner');
+  const secondSeatInner = elements.get('seats-ring').children[1].querySelector('.seat-inner');
+
+  assert.notEqual(elements.get('modal-result').style.display, 'flex');
+  assert.match(firstSeatInner.querySelector('.seat-hand-result').textContent, /-¥10/);
+  assert.match(secondSeatInner.querySelector('.seat-hand-result').textContent, /\+¥10/);
+  assert.match(elements.get('seats-ring').children[1].className, /seat-winner/);
+  assert.deepEqual(socketCalls.ready, []);
+  assert.equal(socketCalls.startGame, 0);
+});
+
+test('next hand action button borrows first, then readies after chips are available', () => {
+  const { elements, listeners, socketCalls } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      awaitingNextHandReady: true,
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 0,
+          isReady: false,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  const nextAction = elements.get('btn-table-next-action');
+  assert.match(nextAction.textContent, /借筹码/);
+  nextAction.onclick();
+  assert.equal(socketCalls.borrowChips, 1);
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'waiting',
+      awaitingNextHandReady: true,
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 1000,
+          isReady: false,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  assert.match(nextAction.textContent, /准备/);
+  nextAction.onclick();
+  assert.deepEqual(socketCalls.ready, [true]);
+  assert.equal(socketCalls.startGame, 0);
+});
 
 test('public turn event does not hide current player actions', () => {
   const { actions, listeners } = loadTableView();
@@ -245,6 +424,144 @@ test('full game state renders current player hole cards', () => {
 
   assert.equal(elements.get('my-hole-cards').children.length, 2);
   assert.deepEqual(renderedCards.slice(-2), ['A\u2660', 'K\u2665']);
+});
+
+test('full game state updates visible seat bet chips', () => {
+  const { elements, listeners } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 990,
+          status: 'occupied',
+        },
+        {
+          position: 1,
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          chips: 980,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  listeners['game:state']({
+    gameState: {
+      status: 'preflop',
+      communityCards: [],
+      pots: { mainPot: 30, sidePots: [] },
+      currentPosition: 0,
+      players: [
+        {
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          seatPosition: 0,
+          chips: 990,
+          bet: 10,
+          holeCards: ['A\u2660', 'K\u2665'],
+        },
+        {
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          seatPosition: 1,
+          chips: 980,
+          bet: 20,
+          holeCards: null,
+        },
+      ],
+    },
+  });
+
+  const firstSeatInner = elements.get('seats-ring').children[0].querySelector('.seat-inner');
+  const secondSeatInner = elements.get('seats-ring').children[1].querySelector('.seat-inner');
+
+  assert.match(firstSeatInner.querySelector('.seat-bet').innerHTML, /¥10/);
+  assert.match(secondSeatInner.querySelector('.seat-bet').innerHTML, /¥20/);
+});
+
+test('full game state hides side pot details until a player is all-in', () => {
+  const { listeners, potCalls } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        { position: 0, playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', chips: 990, status: 'occupied' },
+        { position: 1, playerId: 'human-2', nickname: 'Other', avatar: '#3498db', chips: 980, status: 'occupied' },
+      ],
+    },
+  });
+
+  listeners['game:state']({
+    gameState: {
+      status: 'preflop',
+      communityCards: [],
+      pots: { mainPot: 20, sidePots: [{ amount: 10 }] },
+      totalPot: 30,
+      currentPosition: 0,
+      players: [
+        { playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', seatPosition: 0, chips: 990, bet: 10, allIn: false, holeCards: ['A\u2660', 'K\u2665'] },
+        { playerId: 'human-2', nickname: 'Other', avatar: '#3498db', seatPosition: 1, chips: 980, bet: 20, allIn: false, holeCards: null },
+      ],
+    },
+  });
+
+  assert.equal(potCalls.at(-1).sidePots.length, 0);
+  assert.equal(potCalls.at(-1).totalPot, 30);
+});
+
+test('full game state keeps side pot details when a player is all-in', () => {
+  const { listeners, potCalls } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        { position: 0, playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', chips: 0, status: 'occupied' },
+        { position: 1, playerId: 'human-2', nickname: 'Other', avatar: '#3498db', chips: 100, status: 'occupied' },
+      ],
+    },
+  });
+
+  listeners['game:state']({
+    gameState: {
+      status: 'preflop',
+      communityCards: [],
+      pots: { mainPot: 200, sidePots: [{ amount: 100 }] },
+      totalPot: 300,
+      currentPosition: 1,
+      players: [
+        { playerId: 'human-1', nickname: 'Host', avatar: '#2ecc71', seatPosition: 0, chips: 0, bet: 100, allIn: true, holeCards: ['A\u2660', 'K\u2665'] },
+        { playerId: 'human-2', nickname: 'Other', avatar: '#3498db', seatPosition: 1, chips: 100, bet: 200, allIn: false, holeCards: null },
+      ],
+    },
+  });
+
+  assert.equal(potCalls.at(-1).sidePots.length, 1);
+  assert.equal(potCalls.at(-1).sidePots[0].amount, 100);
+  assert.equal(potCalls.at(-1).totalPot, 300);
 });
 
 test('community card event replaces the board with the latest full street', () => {
@@ -351,4 +668,82 @@ test('turn timer replaces the previous seat timer container', () => {
 
   assert.equal(firstSeat.children.filter(child => child.className === 'seat-timer-container').length, 0);
   assert.equal(secondSeat.children.filter(child => child.className === 'seat-timer-container').length, 1);
+});
+
+test('pot event updates seat bet chips from server player payload', () => {
+  const { elements, listeners, potCalls } = loadTableView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'Table',
+      smallBlind: 10,
+      bigBlind: 20,
+      status: 'playing',
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          chips: 990,
+          status: 'occupied',
+        },
+        {
+          position: 1,
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          chips: 980,
+          status: 'occupied',
+        },
+      ],
+    },
+  });
+
+  listeners['game:state']({
+    gameState: {
+      status: 'preflop',
+      communityCards: [],
+      pots: { mainPot: 30, sidePots: [] },
+      currentPosition: 0,
+      players: [
+        {
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          seatPosition: 0,
+          chips: 990,
+          bet: 10,
+          holeCards: ['A\u2660', 'K\u2665'],
+        },
+        {
+          playerId: 'human-2',
+          nickname: 'Other',
+          avatar: '#3498db',
+          seatPosition: 1,
+          chips: 980,
+          bet: 20,
+          holeCards: null,
+        },
+      ],
+    },
+  });
+
+  listeners['game:pot']({
+    mainPot: 40,
+    sidePots: [],
+    totalPot: 40,
+    players: [
+      { playerId: 'human-1', position: 0, chips: 980, bet: 20, totalBet: 20 },
+      { playerId: 'human-2', position: 1, chips: 980, bet: 20, totalBet: 20 },
+    ],
+  });
+
+  const firstSeatInner = elements.get('seats-ring').children[0].querySelector('.seat-inner');
+  const firstBet = firstSeatInner.querySelector('.seat-bet');
+
+  assert.match(firstBet.innerHTML, /¥20/);
+  assert.equal(elements.get('my-chips').textContent, '¥980');
+  assert.equal(potCalls.at(-1).totalPot, 40);
 });

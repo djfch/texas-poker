@@ -127,6 +127,61 @@ class PlayerManager {
   }
 
   /**
+   * Update a player's display nickname everywhere it is denormalized.
+   */
+  async updateNickname(playerId, nickname) {
+    const cleanNickname = typeof nickname === 'string' ? nickname.trim().slice(0, 20) : '';
+    if (!cleanNickname) {
+      return { success: false, error: 'Nickname is required' };
+    }
+
+    const player = await store.getPlayer(playerId);
+    if (!player) return { success: false, error: 'Player not found' };
+
+    player.nickname = cleanNickname;
+    player.lastActive = Date.now();
+
+    let roomId = player.currentRoom || null;
+    if (roomId) {
+      const room = await store.getRoom(roomId);
+      const roomPlayer = room?.players?.find(p => p.playerId === playerId);
+      if (roomPlayer) {
+        roomPlayer.nickname = cleanNickname;
+      }
+    }
+
+    if (!roomId) {
+      for (const room of store.rooms.values()) {
+        const roomPlayer = room.players?.find(p => p.playerId === playerId);
+        if (roomPlayer) {
+          roomPlayer.nickname = cleanNickname;
+          roomId = room.id;
+          break;
+        }
+      }
+    }
+
+    if (roomId) {
+      const game = await store.getGame(roomId);
+      const gamePlayer = game?.players?.find(p => p.playerId === playerId);
+      if (gamePlayer) {
+        gamePlayer.nickname = cleanNickname;
+      }
+    }
+
+    return {
+      success: true,
+      roomId,
+      player: {
+        id: player.id,
+        nickname: player.nickname,
+        avatar: player.avatar,
+        chips: player.chips,
+      },
+    };
+  }
+
+  /**
    * Update player activity timestamp
    */
   async touch(playerId) {

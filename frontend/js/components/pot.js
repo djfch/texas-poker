@@ -1,96 +1,88 @@
 /**
- * pot.js - 底池显示组件
- * 在桌面中央渲染主池和边池。
+ * pot.js - pot display component
+ * The primary number shows totalPot(总底池); side pots are shown as detail.
  */
 
 const PotComponent = (function() {
-  let currentMainPot = 0;
+  let currentTotalPot = 0;
   let currentSidePots = [];
 
-  /**
-   * 渲染底池显示
-   * @param {number} mainPot - 主池金额
-   * @param {Array} sidePots - [{ amount, eligiblePlayers }]
-   * @returns {HTMLElement}
-   */
-  function render(mainPot, sidePots) {
-    currentMainPot = mainPot || 0;
+  function render(mainPot, sidePots, totalPot) {
     currentSidePots = sidePots || [];
+    currentTotalPot = resolveTotalPot(mainPot, currentSidePots, totalPot);
 
     const container = document.createElement('div');
     container.className = 'pot-container';
     container.id = 'pot-display-root';
 
-    // 主池
     const mainPotEl = document.createElement('div');
     mainPotEl.className = 'pot-main';
     mainPotEl.innerHTML = `
       <span class="pot-label">底池</span>
-      <span class="pot-value" id="pot-value">${formatAmount(currentMainPot)}</span>
+      <span class="pot-value" id="pot-value">${formatAmount(currentTotalPot)}</span>
     `;
     container.appendChild(mainPotEl);
 
-    // 边池
-    if (currentSidePots.length > 0) {
-      const sidePotsEl = document.createElement('div');
-      sidePotsEl.className = 'pot-sides';
-      currentSidePots.forEach((sp, i) => {
-        const spEl = document.createElement('div');
-        spEl.className = 'pot-side';
-        spEl.innerHTML = `
-          <span class="pot-side-label">边池 ${i + 1}</span>
-          <span class="pot-side-value">${formatAmount(sp.amount)}</span>
-        `;
-        sidePotsEl.appendChild(spEl);
-      });
-      container.appendChild(sidePotsEl);
-    }
-
+    renderSidePots(container, currentSidePots);
     return container;
   }
 
-  /**
-   * 更新底池金额（带动画）
-   */
-  function update(mainPot, sidePots) {
+  function update(mainPot, sidePots, totalPot) {
     const container = document.getElementById('pot-display-root');
     if (!container) return;
 
-    const oldMain = currentMainPot;
-    currentMainPot = mainPot || 0;
+    const oldTotal = currentTotalPot;
     currentSidePots = sidePots || [];
+    currentTotalPot = resolveTotalPot(mainPot, currentSidePots, totalPot);
 
-    // 主池动画
     const valueEl = container.querySelector('#pot-value');
-    if (valueEl && oldMain !== currentMainPot) {
-      animateNumber(valueEl, oldMain, currentMainPot, 600);
+    if (valueEl && oldTotal !== currentTotalPot) {
+      animateNumber(valueEl, oldTotal, currentTotalPot, 600);
     }
 
-    // 边池变化时重新渲染
-    const sidePotsContainer = container.querySelector('.pot-sides');
-    if (currentSidePots.length > 0) {
-      if (!sidePotsContainer) {
-        const newSidePots = document.createElement('div');
-        newSidePots.className = 'pot-sides';
-        currentSidePots.forEach((sp, i) => {
-          const spEl = document.createElement('div');
-          spEl.className = 'pot-side';
-          spEl.innerHTML = `
-            <span class="pot-side-label">边池 ${i + 1}</span>
-            <span class="pot-side-value">${formatAmount(sp.amount)}</span>
-          `;
-          newSidePots.appendChild(spEl);
-        });
-        container.appendChild(newSidePots);
-      }
-    } else if (sidePotsContainer) {
-      sidePotsContainer.remove();
-    }
+    renderSidePots(container, currentSidePots);
   }
 
-  /**
-   * 数字动画
-   */
+  function resolveTotalPot(mainPot, sidePots, totalPot) {
+    const explicitTotal = Number(totalPot);
+    if (Number.isFinite(explicitTotal)) return explicitTotal;
+
+    return toAmount(mainPot) + (sidePots || []).reduce((sum, sidePot) => {
+      return sum + toAmount(sidePot && sidePot.amount);
+    }, 0);
+  }
+
+  function renderSidePots(container, sidePots) {
+    let sidePotsContainer = container.querySelector('.pot-sides');
+
+    if (!sidePots || sidePots.length === 0) {
+      if (sidePotsContainer) sidePotsContainer.remove();
+      return;
+    }
+
+    if (!sidePotsContainer) {
+      sidePotsContainer = document.createElement('div');
+      sidePotsContainer.className = 'pot-sides';
+      container.appendChild(sidePotsContainer);
+    }
+
+    sidePotsContainer.innerHTML = '';
+    sidePots.forEach((sp, i) => {
+      const spEl = document.createElement('div');
+      spEl.className = 'pot-side';
+      spEl.innerHTML = `
+        <span class="pot-side-label">边池 ${i + 1}</span>
+        <span class="pot-side-value">${formatAmount(sp.amount)}</span>
+      `;
+      sidePotsContainer.appendChild(spEl);
+    });
+  }
+
+  function toAmount(amount) {
+    const value = Number(amount);
+    return Number.isFinite(value) ? value : 0;
+  }
+
   function animateNumber(el, from, to, duration) {
     const startTime = performance.now();
     const diff = to - from;
@@ -110,19 +102,13 @@ const PotComponent = (function() {
     requestAnimationFrame(step);
   }
 
-  /**
-   * 格式化金额
-   */
   function formatAmount(amount) {
     return '¥' + (amount || 0).toLocaleString();
   }
 
-  /**
-   * 直接挂载到底池容器
-   */
-  function mount(container, mainPot, sidePots) {
+  function mount(container, mainPot, sidePots, totalPot) {
     container.innerHTML = '';
-    container.appendChild(render(mainPot, sidePots));
+    container.appendChild(render(mainPot, sidePots, totalPot));
   }
 
   return {

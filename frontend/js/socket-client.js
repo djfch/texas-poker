@@ -68,9 +68,12 @@ const SocketClient = (function() {
     const serverEvents = [
       'connected',
       'room:state',
+      'room:settlement',
+      'room:settled',
       'player:joined',
       'player:left',
       'player:ready',
+      'player:updated',
       'game:started',
       'game:dealt',
       'game:community',
@@ -141,6 +144,10 @@ const SocketClient = (function() {
     return emit('room:ready', { ready: isReady });
   }
 
+  function borrowChips() {
+    return emit('room:borrow_chips');
+  }
+
   function addAI() {
     return emit('room:add_ai');
   }
@@ -151,6 +158,10 @@ const SocketClient = (function() {
 
   function startGame() {
     return emit('room:start');
+  }
+
+  function updateNickname(nickname) {
+    return emit('player:update_nickname', { nickname });
   }
 
   function gameAction(type, amount) {
@@ -233,9 +244,11 @@ const SocketClient = (function() {
     sit,
     stand,
     ready,
+    borrowChips,
     addAI,
     removeAI,
     startGame,
+    updateNickname,
     gameAction,
     sendChat,
     requestGameState,

@@ -19,6 +19,7 @@ const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 
 const { getConfig } = require('./backend/config/constants');
+const { buildHelmetOptions } = require('./backend/config/security');
 
 // ─── Routes & Socket Handlers ────────────────────────────────────
 const authRoutes = require('./backend/routes/auth');
@@ -32,18 +33,7 @@ const HOST = config.HOST;
 
 // ─── Express App ─────────────────────────────────────────────────
 const app = express();
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", 'ws:', 'wss:'],
-      imgSrc: ["'self'", 'data:'],
-      fontSrc: ["'self'"],
-    },
-  },
-}));
+app.use(helmet(buildHelmetOptions()));
 app.use(cors({
   origin: config.CORS_ORIGINS.length ? config.CORS_ORIGINS : '*',
   methods: ['GET', 'POST'],

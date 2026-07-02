@@ -48,11 +48,12 @@ class RoomManager {
       isPrivate: config.isPrivate ?? false,
       password: config.password || null,
       status: 'waiting', // waiting, playing, ended
-      players: [],       // Array of { playerId, seatPosition, isReady, chips }
+      players: [],       // Array of { playerId, seatPosition, isReady, chips, buyInTotal, borrowCount }
       seats: Array(MAX_SEATS).fill(null),
       chatHistory: [],
       currentGameId: null,
       dealerPosition: null,
+      awaitingNextHandReady: false,
       createdAt: Date.now(),
       gameStartedAt: null,
     };
@@ -115,7 +116,9 @@ class RoomManager {
       avatar: player.avatar,
       seatPosition: -1,
       isReady: false,
-      chips: player.chips ?? room.initialChips,
+      chips: room.initialChips,
+      buyInTotal: room.initialChips,
+      borrowCount: 0,
       isAI: Boolean(player.isAI),
     });
 
@@ -127,6 +130,7 @@ class RoomManager {
     player.currentRoom = roomId;
     player.seatPosition = -1;
     player.isReady = false;
+    player.chips = room.initialChips;
 
     return { success: true, room: this._sanitizeRoom(room) };
   }
@@ -142,35 +146,71 @@ class RoomManager {
     if (playerIndex === -1) return { success: false, error: 'Not in room' };
 
     const player = room.players[playerIndex];
+    const isHostLeaving = room.hostId === playerId;
+
+    if (isHostLeaving) {
+      const settlements = room.players.map(p => this._settleRoomPlayer(room, p));
+      await Promise.all(room.players.map(p => this._clearStoredPlayerRoomState(p.playerId)));
+      await store.deleteRoom(roomId);
+      return {
+        success: true,
+        roomDeleted: true,
+        hostLeft: true,
+        settlements,
+      };
+    }
 
     // Free up seat if seated
     if (player.seatPosition >= 0 && room.seats[player.seatPosition] === playerId) {
       room.seats[player.seatPosition] = null;
     }
 
+    const settlement = this._settleRoomPlayer(room, player);
+
     room.players.splice(playerIndex, 1);
 
-    // Update host if host leaves - pick next seated player if possible
-    if (room.hostId === playerId) {
-      const nextHost = this._selectNextHost(room.players);
-      room.hostId = nextHost ? nextHost.playerId : null;
-    }
-
-    // Update player state
-    const p = await store.getPlayer(playerId);
-    if (p) {
-      p.currentRoom = null;
-      p.seatPosition = -1;
-      p.isReady = false;
-    }
+    await this._clearStoredPlayerRoomState(playerId);
 
     // Clean up empty rooms
     if (room.players.length === 0) {
       await store.deleteRoom(roomId);
-      return { success: true, roomDeleted: true };
+      return { success: true, roomDeleted: true, settlement };
     }
 
-    return { success: true, room: this._sanitizeRoom(room) };
+    return { success: true, room: this._sanitizeRoom(room), settlement };
+  }
+
+  /**
+   * Borrow one initial stack after going broke.
+   */
+  async borrowChips(roomId, playerId) {
+    const room = await store.getRoom(roomId);
+    if (!room) return { success: false, error: 'Room not found' };
+    if (room.status === 'playing') return { success: false, error: 'Cannot borrow during a hand' };
+
+    const player = room.players.find(p => p.playerId === playerId);
+    if (!player) return { success: false, error: 'Not in room' };
+    if (player.seatPosition < 0) return { success: false, error: 'Must be seated to borrow chips' };
+    if ((player.chips ?? 0) > 0) return { success: false, error: 'You still have chips' };
+
+    this._normalizeRoomPlayerLedger(room, player);
+    const stackSize = room.initialChips ?? DEFAULT_INITIAL_CHIPS;
+    player.chips += stackSize;
+    player.buyInTotal += stackSize;
+    player.borrowCount += 1;
+    player.isReady = false;
+
+    const storedPlayer = await store.getPlayer(playerId);
+    if (storedPlayer) {
+      storedPlayer.chips = player.chips;
+      storedPlayer.isReady = false;
+    }
+
+    return {
+      success: true,
+      settlement: this._buildSettlement(room, player),
+      room: this._sanitizeRoom(room),
+    };
   }
 
   /**
@@ -250,6 +290,9 @@ class RoomManager {
     const player = room.players.find(p => p.playerId === playerId);
     if (!player) return { success: false, error: 'Not in room' };
     if (player.seatPosition < 0) return { success: false, error: 'Must be seated to ready' };
+    if (isReady && (player.chips ?? 0) <= 0) {
+      return { success: false, error: 'Must borrow chips before ready' };
+    }
 
     player.isReady = isReady;
 
@@ -270,7 +313,7 @@ class RoomManager {
     const seated = room.players.filter(p => p.seatPosition >= 0);
     if (seated.length < MIN_PLAYERS) return false;
 
-    return seated.every(p => p.isReady);
+    return seated.every(p => p.isReady && (p.chips ?? 0) > 0);
   }
 
   /**
@@ -291,6 +334,7 @@ class RoomManager {
 
     room.status = 'playing';
     room.gameStartedAt = Date.now();
+    room.awaitingNextHandReady = false;
     return { success: true, roomId };
   }
 
@@ -421,6 +465,7 @@ class RoomManager {
       seatedCount: room.players.filter(p => p.seatPosition >= 0).length,
       createdAt: room.createdAt,
       dealerPosition: room.dealerPosition,
+      awaitingNextHandReady: Boolean(room.awaitingNextHandReady),
       seats: this._buildSeatArray(room),
       players: room.players.map(p => ({
         playerId: p.playerId,
@@ -429,6 +474,9 @@ class RoomManager {
         seatPosition: p.seatPosition,
         isReady: p.isReady,
         chips: p.chips,
+        buyInTotal: p.buyInTotal ?? room.initialChips,
+        borrowCount: p.borrowCount ?? 0,
+        netResult: (p.chips ?? 0) - (p.buyInTotal ?? room.initialChips),
         isAI: this._isAIPlayer(p),
       })),
     };
@@ -448,6 +496,9 @@ class RoomManager {
             avatar: player.avatar,
             isReady: player.isReady,
             chips: player.chips,
+            buyInTotal: player.buyInTotal ?? room.initialChips,
+            borrowCount: player.borrowCount ?? 0,
+            netResult: (player.chips ?? 0) - (player.buyInTotal ?? room.initialChips),
             status: 'occupied',
             isAI: this._isAIPlayer(player),
           });
@@ -484,6 +535,43 @@ class RoomManager {
       player.isAI ||
       (typeof player.nickname === 'string' && player.nickname.startsWith('Bot-'))
     ));
+  }
+
+  _normalizeRoomPlayerLedger(room, player) {
+    const initialChips = room.initialChips ?? DEFAULT_INITIAL_CHIPS;
+    if (!Number.isFinite(player.chips)) player.chips = initialChips;
+    if (!Number.isFinite(player.buyInTotal)) player.buyInTotal = initialChips;
+    if (!Number.isInteger(player.borrowCount)) {
+      player.borrowCount = Math.max(0, Math.round((player.buyInTotal - initialChips) / initialChips));
+    }
+  }
+
+  _buildSettlement(room, player) {
+    this._normalizeRoomPlayerLedger(room, player);
+    const chips = player.chips ?? 0;
+    const buyInTotal = player.buyInTotal ?? (room.initialChips ?? DEFAULT_INITIAL_CHIPS);
+    return {
+      playerId: player.playerId,
+      nickname: player.nickname,
+      seatPosition: player.seatPosition,
+      chips,
+      buyInTotal,
+      borrowCount: player.borrowCount ?? 0,
+      netResult: chips - buyInTotal,
+    };
+  }
+
+  _settleRoomPlayer(room, player) {
+    return this._buildSettlement(room, player);
+  }
+
+  async _clearStoredPlayerRoomState(playerId) {
+    const player = await store.getPlayer(playerId);
+    if (!player) return;
+    player.currentRoom = null;
+    player.seatPosition = -1;
+    player.isReady = false;
+    player.chips = 0;
   }
 }
 

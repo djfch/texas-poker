@@ -240,8 +240,39 @@
 
 /* Winner */
 .seat-winner .seat-inner {
-  border-color: var(--color-chip-gold) !important;
-  box-shadow: 0 0 20px rgba(241, 196, 15, 0.4);
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 20px rgba(46, 204, 113, 0.45);
+}
+
+.seat-loser .seat-inner {
+  border-color: rgba(231, 76, 60, 0.45);
+}
+
+.seat-hand-result {
+  position: absolute;
+  right: -10px;
+  bottom: -12px;
+  min-width: 52px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.78);
+  border: 1px solid rgba(255,255,255,0.12);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  z-index: 35;
+}
+
+.seat-result-positive {
+  color: var(--color-primary);
+  border-color: rgba(46, 204, 113, 0.45);
+}
+
+.seat-result-negative {
+  color: var(--color-danger);
+  border-color: rgba(231, 76, 60, 0.45);
 }
 
 /* Seat cards (hole cards) */
@@ -443,6 +474,16 @@
   color: var(--color-chip-gold);
   font-weight: 700;
   font-size: 16px;
+}
+
+#btn-table-borrow {
+  margin-top: 6px;
+}
+
+.table-next-action {
+  min-width: 86px;
+  margin-top: 6px;
+  justify-content: center;
 }
 
 /* ============================================================
@@ -845,6 +886,22 @@
     flex-direction: row;
     gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .table-next-action {
+    min-width: 76px;
+    margin-top: 0;
+    padding: 7px 12px;
+  }
+
+  .seat-hand-result {
+    right: -6px;
+    bottom: -10px;
+    min-width: 44px;
+    padding: 2px 6px;
+    font-size: 10px;
   }
 
   .action-bar {
@@ -871,6 +928,11 @@
 @media (max-width: 480px) {
   .seat {
     width: 76px;
+  }
+
+  .table-next-action {
+    width: 100%;
+    max-width: 120px;
   }
 
   .card {

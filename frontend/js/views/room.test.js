@@ -46,6 +46,7 @@ function loadRoomView() {
       currentRoom: 'ROOM01',
       navigate() {},
       player: { id: 'human-1' },
+      showSettlementModal() {},
       showToast() {},
     },
     console,
@@ -67,6 +68,10 @@ function loadRoomView() {
       removeAICalls: [],
       removeAI(position) {
         this.removeAICalls.push(position);
+      },
+      borrowCalls: 0,
+      borrowChips() {
+        this.borrowCalls++;
       },
       ready() {},
       startGame() {},
@@ -103,6 +108,7 @@ test('host can start with one ready player when AI fill is allowed', () => {
           nickname: 'Host',
           avatar: '#2ecc71',
           isReady: true,
+          chips: 1000,
           status: 'occupied',
         },
         { position: 1, status: 'empty' },
@@ -143,6 +149,7 @@ test('seated human can start when room host is an AI player', () => {
           avatar: '#2ecc71',
           isReady: true,
           status: 'occupied',
+          chips: 1000,
           isAI: false,
         },
         {
@@ -152,6 +159,7 @@ test('seated human can start when room host is an AI player', () => {
           avatar: '#2ecc71',
           isReady: true,
           status: 'occupied',
+          chips: 1000,
           isAI: true,
         },
       ],
@@ -201,6 +209,7 @@ test('room controller can add one AI when AI is allowed and seats are open', () 
           nickname: 'Host',
           avatar: '#2ecc71',
           isReady: true,
+          chips: 1000,
           status: 'occupied',
         },
         { position: 1, status: 'empty' },
@@ -248,6 +257,7 @@ test('room controller can remove an AI from a waiting-room seat', () => {
           avatar: '#2ecc71',
           isReady: true,
           status: 'occupied',
+          chips: 1000,
           isAI: false,
         },
         {
@@ -257,6 +267,7 @@ test('room controller can remove an AI from a waiting-room seat', () => {
           avatar: '#2ecc71',
           isReady: true,
           status: 'occupied',
+          chips: 1000,
           isAI: true,
         },
       ],
@@ -298,4 +309,54 @@ test('room controller can remove an AI from a waiting-room seat', () => {
   elements.get('seats-grid').listeners.click({ target: removeButton });
 
   assert.deepEqual(socketClient.removeAICalls, [1]);
+});
+
+test('room controller shows borrow button for a seated player with zero chips', () => {
+  const { elements, listeners, socketClient } = loadRoomView();
+
+  listeners['room:state']({
+    room: {
+      id: 'ROOM01',
+      name: 'AI Room',
+      hostId: 'human-1',
+      allowAI: true,
+      status: 'waiting',
+      maxPlayers: 6,
+      smallBlind: 10,
+      bigBlind: 20,
+      initialChips: 1000,
+      seats: [
+        {
+          position: 0,
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          isReady: false,
+          chips: 0,
+          status: 'occupied',
+          isAI: false,
+        },
+      ],
+      players: [
+        {
+          playerId: 'human-1',
+          nickname: 'Host',
+          avatar: '#2ecc71',
+          seatPosition: 0,
+          isReady: false,
+          chips: 0,
+          isAI: false,
+        },
+      ],
+    },
+  });
+
+  const borrowButton = elements.get('btn-room-borrow');
+  assert.equal(borrowButton.style.display, 'inline-flex');
+  assert.equal(borrowButton.disabled, false);
+  assert.equal(elements.get('btn-room-ready').disabled, true);
+
+  borrowButton.listeners.click();
+
+  assert.equal(socketClient.borrowCalls, 1);
 });

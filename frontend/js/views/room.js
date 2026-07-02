@@ -17,6 +17,7 @@ const RoomView = (function() {
     // Event bindings
     document.getElementById('btn-room-ready').addEventListener('click', onToggleReady);
     document.getElementById('btn-room-add-ai').addEventListener('click', onAddAI);
+    document.getElementById('btn-room-borrow').addEventListener('click', onBorrowChips);
     document.getElementById('btn-room-start').addEventListener('click', onStartGame);
     document.getElementById('btn-room-leave').addEventListener('click', onLeaveRoom);
 
@@ -25,6 +26,8 @@ const RoomView = (function() {
     SocketClient.on('player:joined', onPlayerJoined);
     SocketClient.on('player:left', onPlayerLeft);
     SocketClient.on('player:ready', onPlayerReady);
+    SocketClient.on('room:settlement', onRoomSettlement);
+    SocketClient.on('room:settled', onRoomSettled);
     SocketClient.on('game:started', onGameStarted);
     SocketClient.on('error', onSocketError);
 
@@ -132,6 +135,33 @@ const RoomView = (function() {
     App.navigate('table', { roomId: App.currentRoom });
   }
 
+  function onRoomSettlement(data) {
+    if (App.currentView !== 'room') return;
+    if (data.type === 'borrow') {
+      App.showToast(`已借筹码 ¥${(roomData?.initialChips || 0).toLocaleString()}`, 'success');
+      return;
+    }
+
+    App.showSettlementModal(data, {
+      title: '离房结算',
+      onClose: () => {
+        App.currentRoom = null;
+        App.navigate('lobby');
+      },
+    });
+  }
+
+  function onRoomSettled(data) {
+    if (App.currentView !== 'room') return;
+    App.showSettlementModal(data, {
+      title: '房间结算',
+      onClose: () => {
+        App.currentRoom = null;
+        App.navigate('lobby');
+      },
+    });
+  }
+
   function onSocketError(data) {
     console.error('[Room] Socket error:', data);
     if (data.error === 'Room not found' || data.error === '房间不存在') {
@@ -171,15 +201,26 @@ const RoomView = (function() {
     // Update action buttons
     const readyBtn = document.getElementById('btn-room-ready');
     const addAIBtn = document.getElementById('btn-room-add-ai');
+    const borrowBtn = document.getElementById('btn-room-borrow');
     const startBtn = document.getElementById('btn-room-start');
+    const myChips = mySeat ? Number(mySeat.chips) || 0 : 0;
+    const canBorrow = Boolean(mySeat && roomData.status !== 'playing' && myChips <= 0);
 
     if (mySeatPosition !== null) {
       readyBtn.style.display = 'inline-flex';
       readyBtn.textContent = isReady ? '取消准备' : '准备';
       readyBtn.className = isReady ? 'btn btn-warning' : 'btn btn-primary';
+      readyBtn.disabled = canBorrow;
+      readyBtn.title = canBorrow ? '筹码为 0，请先借筹码' : '';
     } else {
       readyBtn.style.display = 'none';
+      readyBtn.disabled = false;
+      readyBtn.title = '';
     }
+
+    borrowBtn.style.display = canBorrow ? 'inline-flex' : 'none';
+    borrowBtn.disabled = !canBorrow;
+    borrowBtn.title = `每次借初始筹码 ¥${(roomData.initialChips || 0).toLocaleString()}`;
 
     const canShowAddAI = isHost && roomData.allowAI;
     const canAddAI = canShowAddAI && roomData.status !== 'playing' && seatedCount < roomData.maxPlayers;
@@ -192,13 +233,15 @@ const RoomView = (function() {
     }
 
     if (isHost) {
-      const allReady = (roomData.seats || []).filter(s => s.playerId).every(s => s.isReady);
+      const seatedSeats = (roomData.seats || []).filter(s => s.playerId);
+      const allReady = seatedSeats.every(s => s.isReady);
+      const allFunded = seatedSeats.every(s => (Number(s.chips) || 0) > 0);
       const canFillWithAI = roomData.allowAI && seatedCount >= 1;
       const enoughPlayers = seatedCount >= 2 || canFillWithAI;
       startBtn.style.display = 'inline-flex';
-      startBtn.disabled = !(allReady && enoughPlayers);
+      startBtn.disabled = !(allReady && enoughPlayers && allFunded);
       if (startBtn.disabled) {
-        startBtn.title = allReady ? '至少需要2名玩家' : '还有玩家未准备';
+        startBtn.title = !allFunded ? '有玩家筹码为 0，需要先借筹码' : (allReady ? '至少需要2名玩家' : '还有玩家未准备');
       } else {
         startBtn.title = canFillWithAI && seatedCount < 2 ? '开始后将由 AI 补位' : '';
       }
@@ -237,6 +280,7 @@ const RoomView = (function() {
         const avatarChar = seat.isAI ? '🤖' : (seat.nickname ? seat.nickname.charAt(0).toUpperCase() : '?');
         const avatarColor = seat.avatar || '#3498db';
         const readyBadge = seat.isReady ? '<span class="ready-badge">已准备</span>' : '';
+        const chipsText = Number(seat.chips || 0).toLocaleString();
         const removeAIButton = (isHost && seat.isAI && roomData.status !== 'playing')
           ? `<button class="btn btn-ghost btn-sm btn-remove-ai" data-position="${pos}">移除AI</button>`
           : '';
@@ -248,6 +292,7 @@ const RoomView = (function() {
               <span class="room-seat-name">${escapeHtml(seat.nickname || '玩家')}</span>
               ${seat.isAI ? '<span class="room-seat-ai">AI</span>' : ''}
             </div>
+            <span class="room-seat-chips">¥${chipsText}</span>
             ${readyBadge}
             ${isMe ? '<button class="btn btn-ghost btn-sm btn-stand">起身</button>' : ''}
             ${removeAIButton}
@@ -308,10 +353,12 @@ const RoomView = (function() {
     SocketClient.addAI();
   }
 
+  function onBorrowChips() {
+    SocketClient.borrowChips();
+  }
+
   function onLeaveRoom() {
     SocketClient.leaveRoom();
-    App.currentRoom = null;
-    App.navigate('lobby');
   }
 
   function escapeHtml(str) {

@@ -118,6 +118,14 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 4px 8px 4px 4px;
+  transition: background var(--transition-fast);
+}
+
+.user-info:hover {
+  background: rgba(255,255,255,0.06);
 }
 
 .user-avatar {
@@ -380,6 +388,14 @@ select.input {
   max-width: 360px;
 }
 
+.profile-modal-content {
+  border-color: rgba(46, 204, 113, 0.18);
+}
+
+.profile-modal-content .input {
+  width: 100%;
+}
+
 @keyframes modalSlideIn {
   from {
     opacity: 0;
@@ -428,6 +444,54 @@ select.input {
   gap: 10px;
   padding: 16px 24px;
   border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.settlement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settlement-row {
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+}
+
+.settlement-player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.settlement-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.settlement-result {
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.settlement-positive {
+  color: var(--color-primary);
+}
+
+.settlement-negative {
+  color: var(--color-danger);
+}
+
+.settlement-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* ============================================================
@@ -582,5 +646,18 @@ select.input {
 
   .header-title {
     font-size: 16px;
+  }
+
+  .modal-content {
+    width: calc(100% - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .modal-footer {
+    flex-wrap: wrap;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 120px;
   }
 }

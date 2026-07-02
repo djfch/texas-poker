@@ -39,24 +39,23 @@ const App = (function() {
     // Connect Socket.IO with playerId if available
     SocketClient.connect(restoredPlayerId);
 
-    // Wait for socket connection, then create guest if no restored player
-    SocketClient.once('connect', async () => {
-      if (!state.player) {
-        await ensureGuestPlayer();
+    // Adopt the player identity that is bound to this socket.
+    SocketClient.on('connected', async (data) => {
+      if (data.player && data.player.id) {
+        setCurrentPlayer(data.player);
+        return;
+      }
+
+      if (data.playerId && state.player && state.player.id !== data.playerId) {
+        console.log('[App] Server assigned new player id:', data.playerId);
+        setCurrentPlayer({ ...state.player, id: data.playerId });
       }
     });
 
-    // Listen for backend telling us our player id is unknown (server restart)
-    SocketClient.on('connected', async (data) => {
-      if (data.playerId && state.player && state.player.id !== data.playerId) {
-        // Server assigned a new player id; adopt it
-        console.log('[App] Server assigned new player id:', data.playerId);
-        const newPlayer = { ...state.player, id: data.playerId };
-        state.player = newPlayer;
-        API.setPlayerId(data.playerId);
-        localStorage.setItem('poker_player', JSON.stringify(newPlayer));
-        updateHeaderInfo();
-      }
+    SocketClient.on('player:updated', (data = {}) => {
+      const updated = data.player;
+      if (!updated || !updated.id || !state.player || updated.id !== state.player.id) return;
+      setCurrentPlayer({ ...state.player, ...updated });
     });
 
     // Listen for session expiry and recreate guest
@@ -68,13 +67,9 @@ const App = (function() {
       await ensureGuestPlayer();
     });
 
-    // If already connected
-    if (SocketClient.isConnected() && !state.player) {
-      await ensureGuestPlayer();
-    }
-
     // Setup hash-based routing
     window.addEventListener('hashchange', handleRoute);
+    setupProfileEditor();
 
     // Initialize all views
     LobbyView.init();
@@ -102,16 +97,33 @@ const App = (function() {
 
     const result = await API.createGuest();
     if (result.success) {
-      state.player = result.data.player;
-      API.setPlayerId(state.player.id);
-      localStorage.setItem('poker_player', JSON.stringify(state.player));
+      setCurrentPlayer(result.data.player);
       console.log('[App] Guest player:', state.player.nickname);
-      updateHeaderInfo();
-      if (state.currentView === 'lobby') {
-        LobbyView.loadRooms();
+
+      if (SocketClient.isConnected()) {
+        SocketClient.disconnect();
       }
+      SocketClient.connect(state.player.id);
     } else {
       showToast('创建访客玩家失败', 'error');
+    }
+  }
+
+  function setCurrentPlayer(player) {
+    if (!player || !player.id) return;
+
+    state.player = {
+      id: player.id,
+      nickname: player.nickname,
+      avatar: player.avatar,
+      chips: player.chips,
+    };
+    API.setPlayerId(state.player.id);
+    localStorage.setItem('poker_player', JSON.stringify(state.player));
+    updateHeaderInfo();
+
+    if (state.currentView === 'lobby') {
+      LobbyView.loadRooms();
     }
   }
 
@@ -119,14 +131,71 @@ const App = (function() {
     if (!state.player) return;
     const avatar = document.getElementById('user-avatar');
     const nick = document.getElementById('user-nickname');
-    const chips = document.getElementById('user-chips');
 
     if (avatar) {
       avatar.textContent = (state.player.nickname || 'G').charAt(0).toUpperCase();
       avatar.style.background = state.player.avatar || '#2ecc71';
     }
     if (nick) nick.textContent = state.player.nickname || '访客';
-    if (chips) chips.textContent = '筹码: ¥' + (state.player.chips || 0).toLocaleString();
+  }
+
+  function setupProfileEditor() {
+    const userInfo = document.getElementById('user-info');
+    if (!userInfo) return;
+
+    userInfo.style.cursor = 'pointer';
+    userInfo.title = '修改玩家名称';
+    userInfo.addEventListener('click', openProfileModal);
+
+    const closeBtn = document.getElementById('modal-close-profile');
+    const cancelBtn = document.getElementById('btn-cancel-profile');
+    const submitBtn = document.getElementById('btn-submit-profile');
+    const overlay = document.getElementById('modal-profile-overlay');
+    const input = document.getElementById('input-profile-nickname');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeProfileModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeProfileModal);
+    if (overlay) overlay.addEventListener('click', closeProfileModal);
+    if (submitBtn) submitBtn.addEventListener('click', submitProfileNickname);
+    if (input) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') submitProfileNickname();
+        if (event.key === 'Escape') closeProfileModal();
+      });
+    }
+  }
+
+  function openProfileModal() {
+    if (!state.player) return;
+    const modal = document.getElementById('modal-profile');
+    const input = document.getElementById('input-profile-nickname');
+    if (!modal || !input) return;
+
+    input.value = state.player.nickname || '';
+    modal.style.display = 'flex';
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+  }
+
+  function closeProfileModal() {
+    const modal = document.getElementById('modal-profile');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function submitProfileNickname() {
+    const input = document.getElementById('input-profile-nickname');
+    if (!input || !state.player) return;
+
+    const cleanNickname = input.value.trim();
+    if (!cleanNickname || cleanNickname === state.player.nickname) {
+      closeProfileModal();
+      return;
+    }
+
+    SocketClient.updateNickname(cleanNickname);
+    closeProfileModal();
   }
 
   // ============================================================
@@ -215,6 +284,66 @@ const App = (function() {
     }, 3500);
   }
 
+  function showSettlementModal(data = {}, options = {}) {
+    const modal = document.getElementById('modal-result');
+    const title = document.getElementById('result-title');
+    const body = document.getElementById('result-body');
+    const footer = document.getElementById('result-footer');
+    if (!modal || !title || !body || !footer) return;
+
+    const settlements = data.settlements || (data.settlement ? [data.settlement] : []);
+    title.textContent = options.title || (settlements.length > 1 ? '房间结算' : '离房结算');
+
+    body.innerHTML = `
+      <div class="settlement-list">
+        ${settlements.map(renderSettlementRow).join('')}
+      </div>
+    `;
+    footer.innerHTML = '<button class="btn btn-primary" id="btn-settlement-close">返回大厅</button>';
+    modal.style.display = 'flex';
+
+    const closeBtn = document.getElementById('btn-settlement-close');
+    closeBtn.onclick = () => {
+      modal.style.display = 'none';
+      if (typeof options.onClose === 'function') options.onClose();
+    };
+  }
+
+  function renderSettlementRow(settlement) {
+    const netResult = Number(settlement.netResult) || 0;
+    const netClass = netResult >= 0 ? 'settlement-positive' : 'settlement-negative';
+    return `
+      <div class="settlement-row">
+        <div class="settlement-player">
+          <span class="settlement-name">${escapeHtml(settlement.nickname || '玩家')}</span>
+          <span class="settlement-result ${netClass}">${formatSignedCurrency(netResult)}</span>
+        </div>
+        <div class="settlement-fields">
+          <span>current_chips(当前筹码): ¥${formatNumber(settlement.chips)}</span>
+          <span>buy_in_total(累计买入): ¥${formatNumber(settlement.buyInTotal)}</span>
+          <span>borrow_count(借码次数): ${Number(settlement.borrowCount) || 0}</span>
+          <span>net_result(总输赢): ${formatSignedCurrency(netResult)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function formatSignedCurrency(amount) {
+    const value = Number(amount) || 0;
+    const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+    return `${sign}¥${Math.abs(value).toLocaleString()}`;
+  }
+
+  function formatNumber(value) {
+    return (Number(value) || 0).toLocaleString();
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
   // ============================================================
   // Loading Overlay
   // ============================================================
@@ -253,6 +382,7 @@ const App = (function() {
     init,
     navigate,
     showToast,
+    showSettlementModal,
     showLoading,
     hideLoading,
     ensureGuestPlayer,
