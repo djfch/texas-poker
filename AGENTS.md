@@ -21,8 +21,7 @@
 | 实时通信 | Socket.IO 4.x；多实例时接 `@socket.io/redis-adapter` |
 | 认证 | JWT（jsonwebtoken）+ bcryptjs；游客与注册用户统一签发 token |
 | 安全中间件 | helmet、cors、express-rate-limit、morgan |
-| 前端（新） | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Vant + GSAP（`frontend-app/`） |
-| 前端（旧） | 原生 HTML5 + CSS3 + ES6（`frontend/`，回退用，验收后可归档） |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Vant + GSAP（`frontend-app/`） |
 | 存储 | 三实现同一 Storage 契约：内存 Map（默认）/ PostgreSQL（`pg`，用户+牌局历史）/ Redis（`ioredis`，运行时状态），由 `STORE_BACKEND` 切换 |
 | 配置 | dotenv + `.env` 环境变量 |
 | 测试 | 后端 `node:test` + `node:assert`（tsx 加载）；前端 Vitest + @vue/test-utils |
@@ -45,11 +44,11 @@ npm run build:app      # 前端 vite → frontend-app/dist/
 npm run start:prod     # node dist/server.js（需先 build）
 ```
 
-生产托管 Vue 前端：设置 `FRONTEND_DIR=frontend-app/dist`（Docker 镜像已内置）；默认托管旧版 `frontend/`。
+生产与开发默认托管 `frontend-app/dist`（Vue 构建产物，需先 `npm run build:app`）；开发时推荐用 Vite dev 服务（`npm run dev:app`）获得热更新。
 
 ## 4. 测试说明
 
-- 测试与源码**同目录并列**：后端 `backend/**/*.test.ts`（`node:test` + `node:assert`，tsx 加载）；前端 `frontend-app/src/**/*.test.ts`（Vitest）。旧前端遗留 `frontend/js/**/*.test.js` 仍在 `npm test` 中运行。
+- 测试与源码**同目录并列**：后端 `backend/**/*.test.ts`（`node:test` + `node:assert`，tsx 加载）；前端 `frontend-app/src/**/*.test.ts`（Vitest）。
 - 修改任何领域逻辑、服务逻辑或前端可测模块时，必须同步维护对应测试。
 - 存储契约测试（`backend/storage/storage-contract.test.ts`）与真实 Redis 用例在本地无 `DATABASE_URL`/`REDIS_URL` 时自动跳过；CI 用 GitHub Actions services 拉起 pg/redis 全量运行。
 - 写透持久化回归：`backend/storage/redis-room-flow.test.ts` 用 JSON 往返式假 Redis 验证 room-manager/game-engine 的每个变更路径都显式写回存储。
@@ -64,7 +63,7 @@ node --import tsx --test <文件> # 运行单个后端测试文件
 npm run test:app               # 前端 Vitest 全量
 ```
 
-当前基线：后端 276 个测试（本地 3 个 skip 为 pg/redis 契约用例），前端 142 个测试，全部通过；`npx tsc --noEmit` 零错误。
+当前基线：后端 242 个测试（本地 3 个 skip 为 pg/redis 契约用例），前端 142 个测试，全部通过；`npx tsc --noEmit` 零错误。
 
 ## 5. 目录结构与模块划分
 
@@ -112,7 +111,6 @@ frontend-app/                   # Vue 3 新前端
 ├── src/animations/             # GSAP：deal/chips/turn/showdown/allin，三档降级
 ├── src/types/                  # 与后端事件/负载对齐的类型
 └── src/utils/                  # seat-layout / card-asset 等纯函数
-frontend/                       # 旧版原生前端（回退用）
 deploy/nginx.conf               # 粘性反代（ip_hash + WebSocket 升级）
 .github/workflows/ci.yml        # CI：tsc + 后端测试（pg/redis services）+ Vitest + 构建
 ```
@@ -123,7 +121,7 @@ deploy/nginx.conf               # 粘性反代（ip_hash + WebSocket 升级）
 2. `storage/` 只依赖 `domain/`（game-serializer 复活类实例）与 `config/`。
 3. `services/` 依赖 `domain/` + `storage/`，服务之间不得循环依赖。
 4. `routes/` 与 `socket/` 依赖 `services/` + `storage/`。
-5. `frontend-app/` 与 `frontend/` 完全独立，只通过 HTTP/WebSocket 与服务端通信。
+5. `frontend-app/` 完全独立，只通过 HTTP/WebSocket 与服务端通信。
 
 ## 6. 代码风格约定
 
@@ -160,7 +158,7 @@ deploy/nginx.conf               # 粘性反代（ip_hash + WebSocket 升级）
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `NODE_ENV` / `PORT` / `HOST` | development / 3000 / 0.0.0.0 | 运行环境与监听地址 |
-| `FRONTEND_DIR` | frontend | 静态前端目录；生产设为 `frontend-app/dist` |
+| `FRONTEND_DIR` | frontend-app/dist | 静态前端目录（Vue 构建产物，需先 `npm run build:app`） |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | 空（dev 内置不安全回退）/ 7d | JWT 签名密钥与有效期；生产必须显式设置 |
 | `AI_PROVIDER` / `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | openai-compatible / OpenAI / 空 / gpt-4o-mini | LLM 接入；无有效 key 时自动用规则 AI |
 | `AI_TIMEOUT_MS` / `AI_TEMPERATURE` / `AI_MAX_TOKENS` / `AI_FALLBACK_ENABLED` | 10000 / 0.4 / 4096（请求侧下限）/ true | AI 行为调参 |

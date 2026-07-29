@@ -26,7 +26,7 @@
 | Web 框架 | Express 4.x |
 | 实时通信 | Socket.IO 4.x（多实例时接 `@socket.io/redis-adapter`） |
 | 认证 | JWT（jsonwebtoken）+ bcryptjs；游客与注册用户统一签发 token |
-| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Vant + GSAP（`frontend-app/`）；旧版原生页面保留在 `frontend/` 作回退 |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Vant + GSAP（`frontend-app/`） |
 | 存储 | 内存 Map（默认）/ PostgreSQL（用户+历史）/ Redis（运行时状态），由 `STORE_BACKEND(存储后端)` 选择 |
 | 配置 | `.env` 环境变量 |
 | 部署 | Docker Compose（nginx + app×2 + postgres + redis，推荐）/ PM2（遗留单实例）；详见 `DEPLOY.md` |
@@ -58,7 +58,7 @@ npm start
 npm run dev:app
 ```
 
-后端默认监听 `http://localhost:3000`（直接打开可访问旧版静态前端）；开发时推荐访问 Vite 开发服务地址（默认 `http://localhost:5173`）使用 Vue 新前端。生产环境用 `FRONTEND_DIR=frontend-app/dist` 托管构建产物。
+后端默认监听 `http://localhost:3000`，默认托管 `frontend-app/dist`（需先 `npm run build:app`）；开发时推荐访问 Vite 开发服务地址（默认 `http://localhost:5173`）获得热更新。
 
 ### 运行测试
 
@@ -164,8 +164,7 @@ texas-poker/
 │   │   ├── types/               # 与后端事件/负载对齐的类型
 │   │   └── assets/cards/        # SVG 牌面（vector-playing-cards）
 │   └── vite.config.ts
-│
-└── frontend/                    # 旧版原生前端（回退用，验收后可归档）
+└── （旧版原生前端 frontend/ 已移除，历史见 git 记录）
 ```
 
 ---
