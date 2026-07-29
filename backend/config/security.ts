@@ -29,7 +29,10 @@ function buildHelmetOptions(): HelmetOptions {
         styleSrc: ["'self'", "'unsafe-inline'"],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         imgSrc: ["'self'", 'data:'],
-        fontSrc: ["'self'"],
+        // Vant embeds its icon font as an inline base64 woff2 data URI, so
+        // 'data:' must be allowed here or every Vant icon renders as a
+        // tofu/garbled glyph (refresh button, radio ticks, etc.).
+        fontSrc: ["'self'", 'data:'],
         upgradeInsecureRequests: null,
       },
     },
