@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "commonjs",
+    "target": "ES2022",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "allowJs": true,
+    "checkJs": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "server.ts",
+    "backend/**/*.ts",
+    "backend/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

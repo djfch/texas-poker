@@ -3,3 +3,10 @@ node_modules/*
 server.log
 server.out.log
 server.err.log
+.superpowers/
+frontend-app/node_modules/
+frontend-app/dist/
+dist/
+# Agent debug artifacts (browser session logs / smoke-test screenshots)
+.playwright-cli/
+.smoke/

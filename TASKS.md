@@ -1775,4 +1775,19 @@ T30
 
 ---
 
+## 追加：P1–P5 全栈升级任务记录（2026-07）
+
+以下为 MVP 之后的升级批次，均已完成（每阶段含回归测试 + 双 subagent 对抗审查 + 修复）：
+
+- [x] **P1 前端迁移**：`frontend-app/` Vue 3 + TS + Vite 脚手架、设计令牌、SVG 牌面、Pinia stores、三大视图、牌桌组件、GSAP 动画（三档降级）、Vitest 测试、手机/桌面双布局烟测
+- [x] **P2 后端 TS 化**：domain → config → storage → services → routes/socket → server.ts 逐层迁移，strict 零错误，测试全量随迁
+- [x] **P3 JWT 认证**：auth-service（guest/user token）、register/login 激活（bcrypt）、Socket.IO 握手认证、auth-required 中间件、底牌隐私回归
+- [x] **P4 持久化**：pg-client + 迁移脚本、postgres-store（用户/历史）、redis-store（运行时状态 + TTL）、存储工厂、契约测试三实现全跑
+- [x] **P5a 多实例核心**：game-serializer（牌局序列化/复活）、redis-adapter 接线、scheduler-owner（房间级 Redis 锁仲裁）、fail-fast 语义
+- [x] **P5c 写透持久化**：room-manager/game-engine 全变更路径显式写回（_persistRoom/_persistPlayer）；redis-room-flow 端到端回归（大厅链路 + 整手牌局）；fillRoomWithAI 每轮重读快照修复
+- [x] **P5b 部署产物**：Dockerfile 多阶段、docker-compose 生产拓扑（nginx + app×2 + pg + redis）、deploy/nginx.conf、.github/workflows/ci.yml、DEPLOY.md 重写、ecosystem.config.js 标注遗留
+- [x] **最终集成**：文档收口（AGENTS/README/ARCHITECTURE/PRD/TASKS/.env.example）、全局回归与对抗审查
+
+---
+
 *文档结束*

@@ -22,14 +22,15 @@
 
 | 层级 | 技术 |
 |------|------|
-| 后端运行时 | Node.js 18+ |
+| 后端运行时 | Node.js 22+（TypeScript，开发用 tsx 直跑，生产 tsc 构建到 `dist/`） |
 | Web 框架 | Express 4.x |
-| 实时通信 | Socket.IO 4.x |
-| 前端 | 原生 HTML5 + CSS3 + ES6（零构建依赖） |
-| 存储 | 内存 Map（MVP 阶段，可替换为 Redis/PostgreSQL） |
+| 实时通信 | Socket.IO 4.x（多实例时接 `@socket.io/redis-adapter`） |
+| 认证 | JWT（jsonwebtoken）+ bcryptjs；游客与注册用户统一签发 token |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Vant + GSAP（`frontend-app/`）；旧版原生页面保留在 `frontend/` 作回退 |
+| 存储 | 内存 Map（默认）/ PostgreSQL（用户+历史）/ Redis（运行时状态），由 `STORE_BACKEND(存储后端)` 选择 |
 | 配置 | `.env` 环境变量 |
-| 部署 | Docker / docker-compose / PM2 |
-| 测试 | Node.js 内置 test runner |
+| 部署 | Docker Compose（nginx + app×2 + postgres + redis，推荐）/ PM2（遗留单实例）；详见 `DEPLOY.md` |
+| 测试 | 后端 Node.js 内置 test runner；前端 Vitest + @vue/test-utils |
 
 ---
 
@@ -37,7 +38,7 @@
 
 ### 环境要求
 
-- Node.js >= 18.0.0
+- Node.js >= 22.0.0
 - npm
 
 ### 安装与启动
@@ -50,21 +51,27 @@ npm install
 cp .env.example .env
 # 编辑 .env，填写 AI_API_KEY 等配置
 
-# 启动服务
+# 启动后端服务（tsx 直跑 server.ts）
 npm start
+
+# 另开终端：启动 Vue 前端开发服务（Vite，代理 /api 与 /socket.io 到 3000）
+npm run dev:app
 ```
 
-服务默认监听 `http://localhost:3000`，用浏览器打开该地址即可进入游戏大厅。
+后端默认监听 `http://localhost:3000`（直接打开可访问旧版静态前端）；开发时推荐访问 Vite 开发服务地址（默认 `http://localhost:5173`）使用 Vue 新前端。生产环境用 `FRONTEND_DIR=frontend-app/dist` 托管构建产物。
 
 ### 运行测试
 
 ```bash
-# 运行所有测试
+# 后端全量测试（node:test + tsx）
 npm test
 
 # 单独运行牌型评估或底池测试
 npm run test:hand
 npm run test:pot
+
+# 前端单元测试（Vitest）
+npm run test:app
 ```
 
 ---
@@ -89,6 +96,26 @@ npm run test:pot
 | `CORS_ORIGINS(跨域白名单)` | 允许访问的前端源 | 空 | 多个源用英文逗号分隔；开发为空表示放开。 |
 | `RATE_LIMIT_WINDOW_MS(限流窗口)` | 限流时间窗口 | `900000` | 单位毫秒。 |
 | `RATE_LIMIT_MAX(限流次数)` | 每个窗口内最大请求数 | `100` | 主要保护 REST API。 |
+| `STORE_BACKEND(存储后端)` | 运行时存储实现 | `memory` | `memory`（默认，无外部依赖）/ `postgres`（用户与历史入 PostgreSQL，运行时状态仍在内存）/ `redis`（players/rooms/games 入 Redis）。 |
+| `DATABASE_URL(数据库连接)` | PostgreSQL 连接串 | 空 | `STORE_BACKEND=postgres` 时必填。 |
+| `REDIS_URL(Redis 连接)` | Redis 连接串 | 空 | `STORE_BACKEND=redis` 时必填；设置后同时启用多实例模式（见下节），此时必须 `STORE_BACKEND=redis`，否则启动直接失败。 |
+
+---
+
+## 多实例与存储后端
+
+默认 `STORE_BACKEND=memory` 为单实例模式，行为与早期版本完全一致。设置 `REDIS_URL(Redis 连接)` 后服务器进入多实例模式：
+
+- **广播同步**：Socket.IO 装配 `@socket.io/redis-adapter`，房间广播跨实例触达所有客户端。
+- **调度归属**：每个房间的回合计时器（30s 超时弃牌）与 AI 决策调度由抢到 Redis 锁（`poker:lock:room:{roomId}`，30s TTL，Lua 原子抢锁/续锁）的实例独占；其他实例通过 `poker:sched` 信号频道通知 owner 调度。owner 宕机后锁到期，下一个调度点由存活实例接管，回合超时按"当前时间 + 完整时长"重建（即剩余倒计时重置，已接受的简化语义）。断线保留计时器（60s）始终归连接所在实例，无需共享。
+- **故障语义**：Redis 不可达时启动直接失败（fail-fast，拒绝静默退化为脑裂单实例）；运行期 Redis 中断则无限退避重连，恢复后自动自愈。
+
+**当前边界（如实说明）**：
+
+1. **AI 回合活性缺口**：owner 宕机且当前行动方为 AI（或玩家长期不行动）时，房间可能停滞到下一个调度点才有实例接管；周期巡检接管属后续任务。
+2. **跨实例动作互斥未覆盖**：游戏动作的读-改-写目前只保证进程内串行（每房间 actionQueue），跨实例并发冲突以 last-write-wins 收敛，极端边界（超时与动作同毫秒）可能出现重复事件广播。因此多实例部署依赖 nginx `ip_hash` 粘性会话，同一客户端始终落在同一实例。
+
+> 房间/玩家生命周期的 redis 写透已完成（P5c）：`room-manager` 与 `game-engine` 的每个变更路径都会显式写回存储，`backend/storage/redis-room-flow.test.ts` 用 JSON 往返式假 Redis 验证了完整大厅链路与整手牌局。
 
 ---
 
@@ -96,58 +123,49 @@ npm run test:pot
 
 ```
 texas-poker/
-├── server.js                    # 入口：Express + Socket.IO 启动
-├── package.json
+├── server.ts                    # 入口：Express + Socket.IO 启动、redis-adapter/scheduler 接线
+├── package.json                 # 后端脚本（start/build/test）与前端代理脚本（dev:app 等）
+├── tsconfig.json                # 后端 TypeScript 配置（strict、commonjs、outDir dist）
 ├── README.md                    # 本文件
-├── DEPLOY.md                    # 线上部署指南
+├── DEPLOY.md                    # 线上部署指南（多实例拓扑）
 ├── .env.example                 # 环境变量示例
-├── Dockerfile                   # Docker 镜像
-├── docker-compose.yml           # Docker Compose 配置
-├── ecosystem.config.js          # PM2 配置
+├── Dockerfile                   # 多阶段镜像（前端构建 + 后端 tsc + 运行时）
+├── docker-compose.yml           # 生产拓扑：nginx + app×2 + postgres + redis
+├── deploy/nginx.conf            # 粘性反代（ip_hash + WebSocket 升级）
+├── ecosystem.config.js          # PM2 配置（遗留单实例方案）
+├── .github/workflows/ci.yml     # CI：tsc + 后端测试（pg/redis services）+ Vitest + 构建
 ├── ARCHITECTURE.md              # 系统架构文档
 ├── PRD.md                       # 产品需求文档
 ├── TASKS.md                     # 开发任务列表
 │
-├── backend/
-│   ├── config/constants.js      # 游戏常量（盲注、超时、AI 名称等）
-│   ├── domain/                  # 领域逻辑层（纯函数、可独立测试）
-│   ├── storage/                 # 数据存储实现
-│   │   └── memory-store.js      # 内存 Map 存储（MVP 阶段）
-│   ├── services/                # 服务层（有状态、管理生命周期）
-│   │   ├── player-manager.js    # 玩家/游客管理
-│   │   ├── room-manager.js      # 房间生命周期
-│   │   ├── game-engine.js       # 游戏状态机与核心逻辑
-│   │   ├── ai-manager.js        # AI 机器人创建与决策（LLM + 规则降级）
-│   │   └── ai-llm-service.js    # 大模型 AI 调用服务
-│   ├── routes/                  # REST API
-│   │   ├── auth.js              # /api/auth/*
-│   │   └── rooms.js             # /api/rooms/*
-│   └── socket/                  # WebSocket 事件处理
-│       ├── handlers.js          # Socket.IO 初始化与连接管理
-│       └── events.js            # 房间与游戏事件处理
+├── backend/                     # 后端（TypeScript，CommonJS 语义）
+│   ├── config/
+│   │   ├── constants.ts         # 游戏常量与环境变量（冻结对象）
+│   │   └── security.ts          # helmet/CSP 等安全配置
+│   ├── domain/                  # 领域层：纯函数（card/deck/hand-evaluator/pot-manager）
+│   ├── storage/                 # 存储层（接口全 async）
+│   │   ├── index.ts             # 存储工厂：按 STORE_BACKEND 装配
+│   │   ├── memory-store.ts      # 内存 Map 实现（默认）+ Storage 接口定义
+│   │   ├── postgres-store.ts    # 用户/牌局历史（pg，手写 SQL）
+│   │   ├── redis-store.ts       # players/rooms/games 运行时状态（ioredis）
+│   │   ├── game-serializer.ts   # 牌局实体 JSON 序列化/复活（Deck/PotManager）
+│   │   └── migrations/          # SQL 迁移脚本
+│   ├── services/                # 服务层：player/room/game-engine/action-queue/ai-*
+│   ├── routes/                  # REST API：auth（JWT 注册/登录/游客）/ rooms
+│   └── socket/                  # Socket.IO：handlers / events / scheduler-owner（多实例仲裁）
 │
-└── frontend/                    # 前端单页应用
-    ├── index.html
-    ├── css/
-    │   ├── base.css             # 基础样式与变量
-    │   ├── lobby.css            # 大厅样式
-    │   ├── room.css             # 房间样式
-    │   └── table.css            # 牌桌样式
-    └── js/
-        ├── app.js               # 入口、路由、初始化
-        ├── api.js               # HTTP API 封装
-        ├── socket-client.js     # Socket.IO 客户端
-        ├── views/               # 页面视图
-        │   ├── lobby.js
-        │   ├── room.js
-        │   └── table.js
-        └── components/          # UI 组件
-            ├── card.js
-            ├── seat.js
-            ├── chips.js
-            ├── pot.js
-            ├── timer.js
-            └── actions.js
+├── frontend-app/                # Vue 3 新前端（Vite + Pinia + Vant + GSAP）
+│   ├── src/
+│   │   ├── views/               # Lobby / Room / Table 三大视图
+│   │   ├── components/          # lobby / room / table 组件
+│   │   ├── stores/              # Pinia：player / lobby / room / game
+│   │   ├── services/            # api.ts / socket.ts（自动重连+状态拉取）
+│   │   ├── animations/          # GSAP 动画（发牌/筹码/回合/摊牌，三档降级）
+│   │   ├── types/               # 与后端事件/负载对齐的类型
+│   │   └── assets/cards/        # SVG 牌面（vector-playing-cards）
+│   └── vite.config.ts
+│
+└── frontend/                    # 旧版原生前端（回退用，验收后可归档）
 ```
 
 ---
@@ -253,11 +271,13 @@ AI 不会直接收到完整未脱敏的 `players(玩家列表)`，也不会在�
 
 ### REST API
 
+认证：`POST /api/auth/guest` 与 register/login 均返回 JWT；后续请求以 `Authorization: Bearer <token>` 携带（兼容期仍支持 `x-player-id` 头）。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/auth/guest` | 创建游客 |
-| POST | `/api/auth/register` | 注册（MVP 后完善） |
-| POST | `/api/auth/login` | 登录（MVP 后完善） |
+| POST | `/api/auth/guest` | 创建游客（签发 guest JWT） |
+| POST | `/api/auth/register` | 注册（用户名唯一，bcrypt 哈希，签发 user JWT） |
+| POST | `/api/auth/login` | 登录（签发 user JWT） |
 | GET  | `/api/rooms` | 公开房间列表 |
 | POST | `/api/rooms` | 创建房间 |
 | GET  | `/api/rooms/:id` | 房间详情 |
@@ -322,7 +342,7 @@ sequenceDiagram
 
 服务端会为断线玩家保留 `DISCONNECT_TIMEOUT_MS(断线保留窗口)`，当前为 `60000ms`。玩家在窗口内重连时，会用新的 `socketId(Socket 连接 ID)` 重新绑定原来的 `playerId(玩家 ID)`，并请求完整状态恢复。超过窗口仍未上线时，服务端才会按离开房间处理。
 
-注意：当前 MVP 使用内存存储，服务进程重启会清空房间、玩家和牌局状态；断线重连只覆盖服务进程仍在运行的情况。
+注意：默认 `STORE_BACKEND=memory` 时，服务进程重启会清空房间、玩家和牌局状态，断线重连只覆盖服务进程仍在运行的情况；`STORE_BACKEND=redis` 时运行时状态在 Redis 中，进程重启（Redis 未重启）后房间状态可恢复。
 
 ---
 
@@ -343,28 +363,36 @@ sequenceDiagram
 ## 开发与测试
 
 ```bash
-# 开发模式启动
-node server.js
+# 后端开发模式（tsx 直跑，免构建）
+npm start
 
-# 运行核心逻辑测试
+# 前端开发模式（Vite HMR）
+npm run dev:app
+
+# 后端全量测试 / 前端单元测试
 npm test
+npm run test:app
+
+# 生产构建：后端 tsc → dist/，前端 vite → frontend-app/dist/
+npm run build
+npm run build:app
 ```
 
-核心领域逻辑（`backend/domain/`）已覆盖：Card、Deck、牌型评估与底池计算。
+测试与源码同目录并列：后端 `backend/**/*.test.ts`（node:test），前端 `frontend-app/src/**/*.test.ts`（Vitest）。存储契约测试（`backend/storage/storage-contract.test.ts`）在本地无 `DATABASE_URL`/`REDIS_URL` 时自动跳过 postgres/redis 实现，CI 中由 GitHub Actions services 拉起依赖全量运行。
 
 ---
 
 ## 当前阶段
 
-本项目处于 **MVP 阶段**，已实现：
+项目已从 MVP 升级为完整产品架构（P1–P5 全部落地）：
 
-- 游客模式与基础玩家管理
-- 房间创建、加入、入座、准备、开始
-- 完整德州扑克游戏流程
-- AI 机器人补位与决策
-- 实时 WebSocket 状态同步
+- **P1**：Vue 3 + TS + Vite 新前端（赌场风 UI + GSAP 动画，手机竖屏 + 桌面宽屏）
+- **P2**：后端全量 TypeScript 化（strict，CommonJS 语义保持不变）
+- **P3**：JWT 认证（游客/注册用户统一 token，bcrypt 密码哈希）
+- **P4**：持久化（PostgreSQL 用户+牌局历史，Redis 运行时状态，三实现同一 Storage 契约）
+- **P5**：多实例部署（redis-adapter + 房间级调度仲裁 + 写透持久化 + Docker/CI/nginx 拓扑）
 
-后续计划：注册用户/登录、历史记录、聊天、排行榜、移动端适配、锦标赛模式等。
+后续方向：排行榜、锦标赛模式、AI 回合活性巡检、跨实例动作互斥。
 
 ---
 
