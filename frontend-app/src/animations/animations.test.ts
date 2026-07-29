@@ -1,12 +1,11 @@
 /**
- * animations.test.ts - Tier ladder pure logic (resolveLevel / getMode /
- * setMode / detectEnv with mocked browser APIs) plus behavioral guards:
- * the off tier turns every API into a no-op, and every API silently
- * degrades when its hook elements are missing (never throws).
+ * animations.test.ts - Tier ladder pure logic (resolveLevel / detectEnv with
+ * mocked browser APIs) plus behavioral guards: animations are always on
+ * (full or simple), and every API silently degrades when its hook elements
+ * are missing (never throws).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  ANIMATION_STORAGE_KEY,
   allInImpact,
   celebrateWinners,
   dealHoleCards,
@@ -14,13 +13,11 @@ import {
   distributePot,
   effectiveLevel,
   flyBetToPot,
-  getMode,
   killTableFx,
   pulseActiveRing,
   resolveLevel,
   revealCommunity,
   revealShowdownCards,
-  setMode,
   stopPulse,
   type MotionEnv,
 } from '@/animations/index'
@@ -86,55 +83,29 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('resolveLevel (pure tier ladder)', () => {
-  it('mode off always wins', () => {
-    expect(resolveLevel('off', NORMAL_ENV)).toBe('off')
-    expect(resolveLevel('off', { reducedMotion: false, cores: 1, memoryGB: 1 })).toBe('off')
+describe('resolveLevel (pure tier ladder, always on)', () => {
+  it('prefers-reduced-motion degrades to simple (never off)', () => {
+    expect(resolveLevel({ ...NORMAL_ENV, reducedMotion: true })).toBe('simple')
+    expect(resolveLevel({ reducedMotion: true, cores: 2, memoryGB: 2 })).toBe('simple')
   })
 
-  it('mode on forces full, even on low-end devices', () => {
-    expect(resolveLevel('on', NORMAL_ENV)).toBe('full')
-    expect(resolveLevel('on', { reducedMotion: true, cores: 2, memoryGB: 2 })).toBe('full')
+  it('degrades low-end devices to simple', () => {
+    expect(resolveLevel({ ...NORMAL_ENV, cores: 4 })).toBe('simple')
+    expect(resolveLevel({ ...NORMAL_ENV, cores: 2 })).toBe('simple')
+    expect(resolveLevel({ ...NORMAL_ENV, memoryGB: 4 })).toBe('simple')
+    expect(resolveLevel({ ...NORMAL_ENV, memoryGB: 0.5 })).toBe('simple')
   })
 
-  it('auto respects prefers-reduced-motion', () => {
-    expect(resolveLevel('auto', { ...NORMAL_ENV, reducedMotion: true })).toBe('off')
-  })
-
-  it('auto degrades low-end devices to simple', () => {
-    expect(resolveLevel('auto', { ...NORMAL_ENV, cores: 4 })).toBe('simple')
-    expect(resolveLevel('auto', { ...NORMAL_ENV, cores: 2 })).toBe('simple')
-    expect(resolveLevel('auto', { ...NORMAL_ENV, memoryGB: 4 })).toBe('simple')
-    expect(resolveLevel('auto', { ...NORMAL_ENV, memoryGB: 0.5 })).toBe('simple')
-  })
-
-  it('auto is full on capable devices and tolerates unknown memory', () => {
-    expect(resolveLevel('auto', NORMAL_ENV)).toBe('full')
-    expect(resolveLevel('auto', { ...NORMAL_ENV, memoryGB: null })).toBe('full')
-    expect(resolveLevel('auto', { ...NORMAL_ENV, cores: 6, memoryGB: 6 })).toBe('full')
+  it('is full on capable devices and tolerates unknown memory', () => {
+    expect(resolveLevel(NORMAL_ENV)).toBe('full')
+    expect(resolveLevel({ ...NORMAL_ENV, memoryGB: null })).toBe('full')
+    expect(resolveLevel({ ...NORMAL_ENV, cores: 6, memoryGB: 6 })).toBe('full')
   })
 })
 
-describe('mode persistence (localStorage)', () => {
-  it('defaults to auto and round-trips explicit modes', () => {
-    expect(getMode()).toBe('auto')
-    setMode('off')
-    expect(localStorage.getItem(ANIMATION_STORAGE_KEY)).toBe('off')
-    expect(getMode()).toBe('off')
-    setMode('on')
-    expect(getMode()).toBe('on')
-  })
-
-  it('falls back to auto for unknown stored values', () => {
-    localStorage.setItem(ANIMATION_STORAGE_KEY, 'fancy')
-    expect(getMode()).toBe('auto')
-  })
-
-  it('effectiveLevel combines mode and environment', () => {
-    setMode('off')
-    expect(effectiveLevel()).toBe('off')
-    setMode('on')
-    expect(effectiveLevel()).toBe('full')
+describe('effectiveLevel (live environment)', () => {
+  it('resolves to full or simple, never off', () => {
+    expect(['full', 'simple']).toContain(effectiveLevel())
   })
 })
 
@@ -159,25 +130,14 @@ describe('detectEnv (mocked browser APIs)', () => {
   })
 })
 
-describe('off tier: every API is a no-op', () => {
-  it('spawns nothing and never throws', () => {
-    setMode('off')
-    const table = buildTableDom()
-    expect(() => callAllApis(table)).not.toThrow()
-    expect(table.querySelectorAll('.poker-anim-fx')).toHaveLength(0)
-  })
-})
-
 describe('missing elements: silent degradation', () => {
-  it('full tier against an empty table never throws', () => {
-    setMode('on')
+  it('against an empty table never throws', () => {
     const empty = document.createElement('div')
     document.body.appendChild(empty)
     expect(() => callAllApis(empty)).not.toThrow()
   })
 
   it('tolerates null seats and pots', () => {
-    setMode('on')
     const table = buildTableDom()
     expect(() => {
       dealHoleCards(table, null, [])
@@ -191,23 +151,20 @@ describe('missing elements: silent degradation', () => {
   })
 })
 
-describe('full tier: effects actually spawn', () => {
+describe('effects actually spawn (always on)', () => {
   it('dealHoleCards spawns flying card nodes from the deck', () => {
-    setMode('on')
     const table = buildTableDom()
     dealHoleCards(table, seat(table, 1), [seat(table, 2)])
     expect(table.querySelectorAll('.poker-anim-card').length).toBeGreaterThan(0)
   })
 
-  it('flyBetToPot spawns a chip and counts the pot up', () => {
-    setMode('on')
+  it('flyBetToPot spawns a chip', () => {
     const table = buildTableDom()
     flyBetToPot(table, seat(table, 1), 200)
     expect(table.querySelectorAll('.poker-anim-chip').length).toBeGreaterThan(0)
   })
 
   it('killTableFx removes spawned effect nodes', () => {
-    setMode('on')
     const table = buildTableDom()
     dealHoleCards(table, seat(table, 1), [seat(table, 2)])
     flyBetToPot(table, seat(table, 1), 50)

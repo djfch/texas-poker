@@ -1,9 +1,12 @@
 /**
  * animations/deal.ts - Card dealing and community reveal animations.
  * Cards fly as spawned back-side nodes from the data-deck marker to each
- * seat; the viewer's own cards flip face-up on arrival. Community streets
- * flip in place with a stagger (flop) or as a single card (turn/river).
- * Movement-only, so both full and simple tiers run the same motion.
+ * target; the viewer's own cards flip face-up on arrival. `mySeatEl` is the
+ * viewer's landing element (the bottom hole-cards area, so the flip lands
+ * where the real cards live), while opponents land on their felt seats.
+ * Community streets flip in place with a stagger (flop) or as a single
+ * card (turn/river). Movement-only, so both full and simple tiers run the
+ * same motion.
  */
 import { gsap } from 'gsap'
 import { centerIn, spawnFx } from './index'

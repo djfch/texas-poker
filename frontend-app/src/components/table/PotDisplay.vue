@@ -3,10 +3,13 @@
  * PotDisplay.vue - Main pot plus side-pot list at the table center.
  * Legacy semantics (frontend/js/components/pot.js): the primary number is
  * the total pot (explicit totalPot when finite, otherwise main + sides);
- * side pots are listed as detail rows ("边池 N"). Number-count animation is
- * an A5 concern - the container carries the data-pot hook.
+ * side pots are listed as detail rows ("边池 N"). The count-up animation is
+ * Vue-owned here (a local ref tweened by GSAP) so it never fights Vue over
+ * the DOM text node; the container still carries the data-pot hook for the
+ * chip-flight target.
  */
-import { computed } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { gsap } from 'gsap'
 import type { SidePot } from '@/types'
 
 const props = withDefaults(
@@ -34,6 +37,34 @@ const resolvedTotal = computed(() => {
   return toAmount(props.mainPot) + props.sidePots.reduce((sum, sp) => sum + toAmount(sp?.amount), 0)
 })
 
+// The number actually rendered: seeded to the authoritative value on setup
+// (no animation on first render, so SSR/tests read the final number), then
+// tweened toward resolvedTotal whenever it changes.
+const displayTotal = ref(resolvedTotal.value)
+let countTween: gsap.core.Tween | null = null
+
+watch(resolvedTotal, (next, prev) => {
+  countTween?.kill()
+  if (next === prev) {
+    displayTotal.value = next
+    return
+  }
+  const state = { value: displayTotal.value }
+  countTween = gsap.to(state, {
+    value: next,
+    duration: 0.5,
+    ease: 'power1.out',
+    onUpdate: () => {
+      displayTotal.value = Math.round(state.value)
+    },
+    onComplete: () => {
+      displayTotal.value = next
+    },
+  })
+})
+
+onUnmounted(() => countTween?.kill())
+
 function formatAmount(amount: number): string {
   return `¥${toAmount(amount).toLocaleString()}`
 }
@@ -43,7 +74,7 @@ function formatAmount(amount: number): string {
   <div class="pot-container" data-pot data-testid="pot-display">
     <div class="pot-main">
       <span class="pot-label">底池</span>
-      <span class="pot-value" data-testid="pot-value">{{ formatAmount(resolvedTotal) }}</span>
+      <span class="pot-value" data-testid="pot-value">{{ formatAmount(displayTotal) }}</span>
     </div>
     <div v-if="sidePots.length" class="pot-sides">
       <div v-for="(sp, i) in sidePots" :key="i" class="pot-side" data-testid="side-pot">

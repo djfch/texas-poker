@@ -22,6 +22,7 @@ import TurnTimer from '@/components/table/TurnTimer.vue'
 import HandResultOverlay from '@/components/table/HandResultOverlay.vue'
 import PokerCard from '@/components/table/PokerCard.vue'
 import { useTableAnimations } from '@/animations/useTableAnimations'
+import { useTableSounds } from '@/audio/useTableSounds'
 
 const emit = defineEmits<{
   sit: [position: number]
@@ -43,6 +44,9 @@ let resizeObserver: ResizeObserver | null = null
 // A5: watch game-store transitions and fire GSAP animations on the hooks
 // (data-deck / data-pot / data-seat-index / ...) mounted in this subtree.
 useTableAnimations(surfaceRef)
+
+// Synthesized sound effects react to the same store transitions.
+useTableSounds()
 
 onMounted(() => {
   if (!surfaceRef.value) return

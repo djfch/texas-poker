@@ -67,12 +67,19 @@ export function useTableAnimations(surfaceRef: Ref<HTMLElement | null>): void {
       safe(() => {
         const surface = surfaceRef.value
         if (!surface) return
+        // Spawn the deal at the view root so the viewer's cards can fly from
+        // the felt deck down to the bottom hole-cards without being clipped
+        // by the felt's overflow:hidden. Opponents still land on their felt
+        // seats. Falls back to the surface / seat when hooks are missing.
+        const root = (surface.closest('.table-view') as HTMLElement) ?? surface
         const me = gameStore.mySeatPosition
+        const myTarget =
+          (root.querySelector('[data-my-hole-cards]') as HTMLElement | null) ?? seatEl(me)
         const others = gameStore.players
           .filter(p => p.seatPosition !== me)
           .map(p => seatEl(p.seatPosition))
           .filter((el): el is HTMLElement => el !== null)
-        dealHoleCards(surface, seatEl(me), others)
+        dealHoleCards(root, myTarget, others)
       })
     },
   )

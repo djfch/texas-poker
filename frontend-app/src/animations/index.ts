@@ -1,19 +1,17 @@
 /**
  * animations/index.ts - Facade of the table animation system plus the
- * three-tier quality ladder (full | simple | off).
+ * two-tier quality ladder (full | simple). Animations are always on; only
+ * their richness degrades — there is no user off switch.
  *
  * Tier resolution (pure, unit-tested):
- * - mode 'off' (localStorage poker_animations)  -> everything is a no-op
- * - mode 'on'                                   -> always full (user override)
- * - mode 'auto' (default): prefers-reduced-motion -> off;
- *   low-end device (hardwareConcurrency <= 4 or deviceMemory <= 4) -> simple;
- *   otherwise full.
+ * - prefers-reduced-motion            -> simple (reduced, never fully off)
+ * - low-end device (cores <= 4 or deviceMemory <= 4) -> simple
+ * - otherwise                          -> full
  * The simple tier keeps translate/fade motion but drops particles, glow
  * and screen shake.
  *
- * All public APIs are re-exported here behind an off-guard so callers never
- * branch on the tier themselves. Animations are decorative only: every API
- * silently degrades when its target elements are missing.
+ * All public APIs are re-exported here. Animations are decorative only:
+ * every API silently degrades when its target elements are missing.
  */
 import { gsap } from 'gsap'
 import { dealHoleCards as dealHoleCardsImpl, revealCommunity as revealCommunityImpl } from './deal'
@@ -27,12 +25,9 @@ export type { StreetName } from './deal'
 
 // ─── Tier management ───────────────────────────────────────────────
 
-export type AnimationMode = 'auto' | 'on' | 'off'
-export type AnimationLevel = 'full' | 'simple' | 'off'
+export type AnimationLevel = 'full' | 'simple'
 
-export const ANIMATION_STORAGE_KEY = 'poker_animations'
-
-/** Environment signals relevant for the auto tier. */
+/** Environment signals relevant for the tier ladder. */
 export interface MotionEnv {
   reducedMotion: boolean
   cores: number
@@ -40,11 +35,12 @@ export interface MotionEnv {
   memoryGB: number | null
 }
 
-/** Pure tier resolution, kept separate from browser APIs for unit tests. */
-export function resolveLevel(mode: AnimationMode, env: MotionEnv): AnimationLevel {
-  if (mode === 'off') return 'off'
-  if (mode === 'on') return 'full'
-  if (env.reducedMotion) return 'off'
+/**
+ * Pure tier resolution, kept separate from browser APIs for unit tests.
+ * Animations are always on; this only picks how rich they are.
+ */
+export function resolveLevel(env: MotionEnv): AnimationLevel {
+  if (env.reducedMotion) return 'simple'
   if (env.cores <= 4 || (env.memoryGB !== null && env.memoryGB <= 4)) return 'simple'
   return 'full'
 }
@@ -62,26 +58,9 @@ export function detectEnv(): MotionEnv {
   return { reducedMotion: reduced, cores, memoryGB: memory }
 }
 
-export function getMode(): AnimationMode {
-  try {
-    const raw = localStorage.getItem(ANIMATION_STORAGE_KEY)
-    return raw === 'on' || raw === 'off' || raw === 'auto' ? raw : 'auto'
-  } catch {
-    return 'auto'
-  }
-}
-
-export function setMode(mode: AnimationMode): void {
-  try {
-    localStorage.setItem(ANIMATION_STORAGE_KEY, mode)
-  } catch {
-    // Private mode / quota errors must not break the toggle.
-  }
-}
-
-/** Current effective tier; re-evaluated per call so toggles apply at once. */
+/** Current effective tier; re-evaluated per call. */
 export function effectiveLevel(): AnimationLevel {
-  return resolveLevel(getMode(), detectEnv())
+  return resolveLevel(detectEnv())
 }
 
 // ─── Shared DOM helpers (used by the animation modules) ────────────
@@ -137,26 +116,24 @@ export function killTableFx(tableEl: HTMLElement | null): void {
   gsap.killTweensOf(tableEl)
 }
 
-// ─── Public API (off tier = no-op) ─────────────────────────────────
-
-function active(): boolean {
-  return effectiveLevel() !== 'off'
-}
+// ─── Public API ────────────────────────────────────────────────────
+// Animations are always on; the modules themselves branch on
+// effectiveLevel() (full vs simple) and silently degrade on missing hooks.
 
 export function dealHoleCards(
   tableEl: HTMLElement,
   mySeatEl: HTMLElement | null,
   otherSeatEls: HTMLElement[],
 ): void {
-  if (active()) dealHoleCardsImpl(tableEl, mySeatEl, otherSeatEls)
+  dealHoleCardsImpl(tableEl, mySeatEl, otherSeatEls)
 }
 
 export function revealCommunity(tableEl: HTMLElement, street: StreetName, count: number): void {
-  if (active()) revealCommunityImpl(tableEl, street, count)
+  revealCommunityImpl(tableEl, street, count)
 }
 
 export function flyBetToPot(tableEl: HTMLElement, seatEl: HTMLElement | null, amount: number): void {
-  if (active()) flyBetToPotImpl(tableEl, seatEl, amount)
+  flyBetToPotImpl(tableEl, seatEl, amount)
 }
 
 export function distributePot(
@@ -164,11 +141,11 @@ export function distributePot(
   potEl: HTMLElement | null,
   winnerSeatEls: HTMLElement[],
 ): void {
-  if (active()) distributePotImpl(tableEl, potEl, winnerSeatEls)
+  distributePotImpl(tableEl, potEl, winnerSeatEls)
 }
 
 export function pulseActiveRing(seatEl: HTMLElement | null): void {
-  if (active()) pulseImpl(seatEl)
+  pulseImpl(seatEl)
 }
 
 export function stopPulse(seatEl: HTMLElement | null): void {
@@ -176,13 +153,13 @@ export function stopPulse(seatEl: HTMLElement | null): void {
 }
 
 export function celebrateWinners(tableEl: HTMLElement, winnerSeatEls: HTMLElement[]): void {
-  if (active()) celebrateImpl(tableEl, winnerSeatEls)
+  celebrateImpl(tableEl, winnerSeatEls)
 }
 
 export function revealShowdownCards(seatEl: HTMLElement | null): void {
-  if (active()) revealCardsImpl(seatEl)
+  revealCardsImpl(seatEl)
 }
 
 export function allInImpact(tableEl: HTMLElement): void {
-  if (active()) allInImpactImpl(tableEl)
+  allInImpactImpl(tableEl)
 }

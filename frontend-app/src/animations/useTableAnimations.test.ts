@@ -5,13 +5,13 @@
  * started -> dealt -> community sequence still animates.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import type { GamePlayer, GameState } from '@/types'
 import { useTableAnimations } from '@/animations/useTableAnimations'
-import { dealHoleCards, revealCommunity, setMode } from '@/animations/index'
+import { dealHoleCards, revealCommunity } from '@/animations/index'
 import { useGameStore } from '@/stores/game'
 import { usePlayerStore } from '@/stores/player'
 
@@ -103,12 +103,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   localStorage.clear()
   vi.clearAllMocks()
-  setMode('on')
   usePlayerStore().setIdentity({ id: 'me', nickname: 'Me', avatar: '', chips: 1000 })
-})
-
-afterEach(() => {
-  setMode('auto')
 })
 
 describe('full-sync restore guards', () => {
