@@ -7,7 +7,7 @@
     "start": "tsx server.ts",
     "build": "tsc",
     "start:prod": "node dist/server.js",
-    "test": "node --import tsx --test backend/**/*.test.ts frontend/js/**/*.test.js",
+    "test": "node --import tsx --test backend/**/*.test.ts",
     "test:hand": "node --import tsx backend/domain/hand-evaluator.test.ts",
     "test:pot": "node --import tsx backend/domain/pot-manager.test.ts",
     "dev:app": "npm --prefix frontend-app run dev",

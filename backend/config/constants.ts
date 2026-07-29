@@ -13,9 +13,9 @@ const constants = Object.freeze({
 
   // ─── Frontend Static Dir ───────────────────────────────────────
   // SPA/static directory to serve, resolved against the process working
-  // directory. Default 'frontend' is the legacy static folder; production
-  // images set FRONTEND_DIR=frontend-app/dist to serve the Vue build.
-  FRONTEND_DIR: process.env.FRONTEND_DIR || 'frontend',
+  // directory. Defaults to the Vue build output (frontend-app/dist); run
+  // `npm run build:app` first, or use the Vite dev server during development.
+  FRONTEND_DIR: process.env.FRONTEND_DIR || 'frontend-app/dist',
 
   // ─── CORS ────────────────────────────────────────────────────────
   CORS_ORIGINS: (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),

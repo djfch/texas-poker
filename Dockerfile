@@ -18,8 +18,7 @@ COPY backend ./backend
 RUN npm run build
 
 # ─── Stage 3: runtime ────────────────────────────────────────────
-# Production deps only + compiled backend + built SPA + legacy
-# frontend/ fallback (FRONTEND_DIR points at the Vue build).
+# Production deps only + compiled backend + built Vue SPA.
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -28,7 +27,6 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=backend /build/dist ./dist
 COPY --from=frontend /build/frontend-app/dist ./frontend-app/dist
-COPY frontend ./frontend
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -33,7 +33,7 @@ flowchart LR
 | `NODE_ENV` | 运行环境 | `development` | 生产设为 `production`，影响缓存与日志格式 |
 | `PORT` | HTTP 端口 | `3000` | 容器内固定 3000，由 nginx 对外映射 |
 | `HOST` | 监听地址 | `0.0.0.0` | |
-| `FRONTEND_DIR` | 前端静态目录 | `frontend` | 相对进程工作目录；生产镜像设为 `frontend-app/dist`（Vue 构建产物），`frontend/` 为旧版回退 |
+| `FRONTEND_DIR` | 前端静态目录 | `frontend-app/dist` | 相对进程工作目录；Vue 构建产物，需先 `npm run build:app` |
 | `STORE_BACKEND` | 存储后端 | `memory` | `memory` / `postgres` / `redis`；多实例必须 `redis` |
 | `DATABASE_URL` | PostgreSQL 连接串 | 空 | `STORE_BACKEND=postgres` 时必需，用户与牌局历史持久化 |
 | `REDIS_URL` | Redis 连接串 | 空 | 设置即进入多实例模式（adapter + scheduler owner），且强制 `STORE_BACKEND=redis` |
@@ -64,10 +64,8 @@ compose 会自动读取与 `docker-compose.yml` 同级的 `.env` 做变量替换
 ```bash
 npm ci                 # 含 devDependencies（tsc 构建需要）
 npm run build          # tsc → dist/
+npm run build:app      # vite → frontend-app/dist/（默认托管目录）
 npm run start:prod     # node dist/server.js
-
-# 指定 Vue 前端产物（默认托管 frontend/ 旧版静态目录）
-FRONTEND_DIR=frontend-app/dist npm run start:prod
 ```
 
 开发模式仍是 `npm start`（tsx 直跑 `server.ts`，免构建）。

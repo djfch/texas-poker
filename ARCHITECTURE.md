@@ -19,7 +19,7 @@
 | Web 框架 | Express 4.x | 轻量、稳定、社区最大 |
 | 实时通信 | Socket.IO 4.x + `@socket.io/redis-adapter`（多实例） | 自动降级、断线重连、房间机制；adapter 跨实例广播 |
 | 认证 | JWT（jsonwebtoken）+ bcryptjs | 游客与注册用户统一 token；无原生依赖 |
-| 前端 | Vue 3 + TS + Vite + Pinia + Vue Router + Vant + GSAP | 组件化 + 类型安全；赌场风 UI 与动画；旧版原生前端保留作回退 |
+| 前端 | Vue 3 + TS + Vite + Pinia + Vue Router + Vant + GSAP | 组件化 + 类型安全；赌场风 UI 与动画 |
 | 存储 | 三实现同一 Storage 契约：内存 Map / PostgreSQL（pg）/ Redis（ioredis） | `STORE_BACKEND` 切换；内存默认零依赖；pg 落用户+历史；redis 支撑多实例 |
 | 测试 | node:test（后端）+ Vitest（前端） | 核心逻辑（牌型、底池、写透）高覆盖 |
 
@@ -235,8 +235,7 @@ texas-poker/
 │       ├── animations/      # GSAP 动画（三档降级）
 │       ├── types/           # 与后端事件/负载对齐的类型
 │       └── utils/           # seat-layout / card-asset 等纯函数
-│
-└── frontend/                # 旧版原生前端（回退用，验收后可归档）
+└── （旧版原生前端 frontend/ 已移除，历史见 git 记录）
 ```
 
 ---
