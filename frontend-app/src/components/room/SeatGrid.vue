@@ -59,6 +59,10 @@ function canRemoveAI(seat: SeatInfo): boolean {
 .seats-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
+  /* Fixed row height so every seat matches the tallest (AI seat with the
+     host-only remove button); empty seats stretch to the same size instead
+     of collapsing shorter. */
+  grid-auto-rows: 180px;
   gap: var(--casino-space-3);
   margin-top: var(--casino-space-4);
 }
