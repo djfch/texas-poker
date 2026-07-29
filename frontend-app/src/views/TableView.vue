@@ -33,7 +33,6 @@ import HoleCards from '@/components/table/HoleCards.vue'
 import ActionBar from '@/components/table/ActionBar.vue'
 import HistoryDrawer from '@/components/table/HistoryDrawer.vue'
 import SettlementDialog from '@/components/room/SettlementDialog.vue'
-import { getMode, setMode, type AnimationMode } from '@/animations/index'
 
 const route = useRoute()
 const router = useRouter()
@@ -76,17 +75,6 @@ onUnmounted(() => {
 function onSocketError(data: unknown): void {
   const err = (data ?? {}) as { error?: string; message?: string }
   showToast(err.message || err.error || '出错了')
-}
-
-// ─── Animation toggle (A5): on/off switch persisted to localStorage ──
-
-const animMode = ref<AnimationMode>(getMode())
-const animToggleLabel = computed(() => (animMode.value === 'off' ? '动画: 关' : '动画: 开'))
-
-function onToggleAnimations(): void {
-  animMode.value = animMode.value === 'off' ? 'on' : 'off'
-  setMode(animMode.value)
-  showToast(animMode.value === 'off' ? '已关闭牌桌动画' : '已开启牌桌动画')
 }
 
 // ─── Bottom bar state ──────────────────────────────────────────────
@@ -182,9 +170,6 @@ function onSettlementConfirm(): void {
         <span class="room-id">#{{ roomId }}</span>
         <span class="room-blinds">盲注: {{ room?.smallBlind ?? '-' }}/{{ room?.bigBlind ?? '-' }}</span>
       </div>
-      <van-button size="small" plain data-testid="btn-anim-toggle" @click="onToggleAnimations">
-        {{ animToggleLabel }}
-      </van-button>
       <van-button size="small" plain data-testid="btn-history" @click="showHistory = true">
         记录
       </van-button>
@@ -193,7 +178,9 @@ function onSettlementConfirm(): void {
     <TableFelt @sit="onSit" @next-hand="onNextHand" />
 
     <footer class="player-bar">
-      <HoleCards :cards="gameStore.myHoleCards" />
+      <div class="my-hole-cards" data-my-hole-cards>
+        <HoleCards :cards="gameStore.myHoleCards" />
+      </div>
       <div class="my-info">
         <span class="my-nickname">{{ myNickname }}</span>
         <span class="my-chips">¥{{ myChips.toLocaleString() }}</span>
@@ -217,6 +204,9 @@ function onSettlementConfirm(): void {
 .table-view {
   display: flex;
   flex-direction: column;
+  /* Positioned so deal-animation nodes (spawned at this root) anchor here
+     and can fly from the felt deck down to the bottom hole-cards. */
+  position: relative;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;

@@ -1,45 +1,16 @@
 /**
  * animations/chips.ts - Chip flight animations for betting and payouts.
  * Bets fly from the acting seat (its data-seat-bet circle when present)
- * into the data-pot container while the pot number counts up; on hand end
- * the pot chips fly back out to the winner seats. The full tier adds a
+ * into the data-pot container and the pot pill pulses on landing; on hand
+ * end the pot chips fly back out to the winner seats. The full tier adds a
  * golden glow and a floating amount label; simple keeps the plain flight.
+ * The pot number count-up is owned by PotDisplay.vue (Vue-driven), not here.
  */
 import { gsap } from 'gsap'
 import { centerIn, effectiveLevel, spawnFx } from './index'
 
 const CHIP_FLY_SECONDS = 0.5
 const PAYOUT_CHIPS = 3
-
-/** Pot value tweens keyed by element, so rapid bets never stack tweens. */
-const potCountUps = new WeakMap<Element, gsap.core.Tween>()
-
-function parseAmount(text: string): number {
-  const digits = text.replace(/[^\d]/g, '')
-  return digits ? Number(digits) : 0
-}
-
-/**
- * Count the displayed pot up by `amount`. Vue re-renders the authoritative
- * value when game:pot lands right after the action, so the transient text
- * is always corrected; no store state is touched here.
- */
-function countUpPot(potEl: Element, amount: number): void {
-  const valueEl = potEl.querySelector('.pot-value')
-  if (!valueEl || amount <= 0) return
-  potCountUps.get(valueEl)?.kill()
-  const from = parseAmount(valueEl.textContent ?? '0')
-  const state = { value: from }
-  const tween = gsap.to(state, {
-    value: from + amount,
-    duration: CHIP_FLY_SECONDS,
-    ease: 'power1.out',
-    onUpdate: () => {
-      valueEl.textContent = `¥${Math.round(state.value).toLocaleString()}`
-    },
-  })
-  potCountUps.set(valueEl, tween)
-}
 
 /** Brief scale pulse on the pot pill once the chips land. */
 function pulsePot(potEl: Element): void {
@@ -89,7 +60,6 @@ export function flyBetToPot(tableEl: HTMLElement, seatEl: HTMLElement | null, am
       onComplete: () => label.remove(),
     })
   }
-  countUpPot(pot, amount)
 }
 
 /** Payout animation: chips fly from the pot to every winner seat. */

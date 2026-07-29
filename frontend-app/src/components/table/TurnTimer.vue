@@ -86,8 +86,8 @@ const isExpired = computed(() => remaining.value <= 0)
 .turn-timer {
   position: absolute;
   top: -18px;
-  right: -18px;
-  z-index: 2;
+  left: -18px;
+  z-index: 3;
   pointer-events: none;
 }
 
