@@ -75,3 +75,35 @@ jobs:
 
       - name: Build backend (tsc emit)
         run: npm run build
+
+  deploy:
+    name: Deploy to server
+    # Only after CI passes, and only on a real push to main (never on PRs or
+    # forks). Secrets are unavailable to pull_request events by design.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # GitHub "production" environment: attach required reviewers / secrets
+    # scoping here if you later want a manual approval gate before deploy.
+    environment: production
+    steps:
+      - name: SSH deploy (pull latest + rebuild compose stack)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # Fail the job on any command error so a broken deploy is visible.
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH || '~/texas-poker' }}
+            git fetch --all
+            git reset --hard origin/main
+            # Rebuild only what changed; keeps postgres/redis volumes intact.
+            docker compose up -d --build
+            docker compose ps
+            # Smoke check via the app container's internal port (independent
+            # of whichever host NGINX_PORT this box uses).
+            docker compose exec -T app node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

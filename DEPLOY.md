@@ -152,7 +152,53 @@ nginx 在配置加载时一次性解析 `app` 服务名，若它先于 app 容�
 若仍遇到（例如手改了旧配置），先 `docker compose down` 清掉脏网络再
 `docker compose up -d`；app 变 healthy 后 `docker compose restart nginx` 即可恢复。
 
-## 9. 注意事项
+## 9. 自动部署（CI/CD）
+
+`.github/workflows/ci.yml` 在 `test` 作业（tsc + 后端测试 + 前端 Vitest + 双端
+构建）全部通过后，才运行 `deploy` 作业；且仅在 **push 到 `main`** 时
+触发（PR 与 fork 不部署）。deploy 通过 SSH 登录服务器，拉取最新
+`main` 并 `docker compose up -d --build`（保留 postgres/redis 数据卷），
+最后做一次 `/health` 冗测。
+
+### 9.1 服务器侧准备（一次性）
+
+用专用密钥而非密码登录（更安全，也是 CD 前提）：
+
+```bash
+# 在本机生成一对部署专用密钥（不要用个人日常密钥）
+ssh-keygen -t ed25519 -C "texas-poker-cd" -f deploy_key
+
+# 把公钥加到服务器（在服务器上执行，或用 ssh-copy-id）
+cat deploy_key.pub >> ~/.ssh/authorized_keys
+
+# 确保服务器上仓库已克隆且 .env 已配好（第 5 节）
+cd ~/texas-poker && git remote -v
+```
+
+### 9.2 GitHub Secrets
+
+仓库 **Settings → Secrets and variables → Actions** 配置：
+
+| Secret | 必填 | 说明 |
+| --- | --- | --- |
+| `DEPLOY_HOST` | ✓ | 服务器 IP（如 `113.46.215.121`） |
+| `DEPLOY_USER` | ✓ | SSH 用户（如 `root`） |
+| `DEPLOY_SSH_KEY` | ✓ | 上面 `deploy_key` 私钥的**完整内容**（含首尾 BEGIN/END 行） |
+| `DEPLOY_PORT` | ✗ | SSH 端口，缺省 22 |
+| `DEPLOY_PATH` | ✗ | 仓库路径，缺省 `~/texas-poker` |
+
+建议同时在 **Settings → Environments** 新建 `production` 环境（工作流已引用），
+如需部署前人工审批，在该环境加 required reviewers 即可。
+
+### 9.3 触发与回滚
+
+- 触发：合并 PR 到 `main`（或直推 `main`）→ CI 绿 → 自动部署。
+- 回滚：`git revert` 后推 `main`，重跑一次部署；或在服务器
+  `git reset --hard <旧 commit> && docker compose up -d --build`。
+- 部署脚本用 `git reset --hard origin/main`，因此**不要在服务器仓库
+  里手改受控文件**（会被覆盖）；`.env` 不受控，安全。
+
+## 10. 注意事项
 
 - 生产环境务必设置 `JWT_SECRET` 与 `CORS_ORIGINS`。
 - `AI_API_KEY` 只保存在服务器 `.env` 中，不要提交到 Git。
