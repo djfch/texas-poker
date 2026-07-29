@@ -1,8 +1,7 @@
-version: '3.8'
-
 # Production topology: nginx (sticky reverse proxy) → app × 2 → postgres/redis.
 # Variable substitution picks up a .env file placed next to this file
 # (compose loads it automatically); every value has a dev-safe default.
+# (The obsolete top-level `version` key was removed — Compose v2 ignores it.)
 
 services:
   app:
@@ -54,10 +53,13 @@ services:
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      # service_started (not healthy): nginx resolves the `app` DNS name at
-      # startup, so the app containers only need to exist, not be healthy.
+      # service_healthy (not service_started): nginx resolves the `app` DNS
+      # name once at config-load time and hard-crashes with
+      # `host not found in upstream "app:3000"` if it starts before an app
+      # container is up. Gating on the app healthcheck guarantees the name
+      # is resolvable before nginx boots, breaking that crash loop.
       app:
-        condition: service_started
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -67,8 +69,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-poker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-poker}
       POSTGRES_DB: ${POSTGRES_DB:-poker}
+    # Host mapping is for debugging only — the app connects over the
+    # internal Docker network (postgres:5432). Bound to localhost and
+    # overridable so it never conflicts with another postgres on the host.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -81,8 +86,10 @@ services:
     image: redis:7-alpine
     container_name: texas-poker-redis
     restart: unless-stopped
+    # Same as postgres: internal network only for the app; localhost-bound
+    # debug mapping with an overridable host port.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:

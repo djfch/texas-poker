@@ -130,6 +130,28 @@ docker compose logs -f nginx          # 代理日志
 - 启动即退出且日志含 `Redis is unreachable`：Redis 未就绪或连接串错误，
   服务按设计快速失败（不静默降级为单实例）。
 
+### 8.1 宿主端口冲突（共享服务器常见）
+
+三个宿主端口可能与机器上已有服务冲突，全部可在 `.env` 里改，无需动代码：
+
+| 现象（`docker compose up` 报错） | 冲突端口 | 处理 |
+| --- | --- | --- |
+| `bind host port 0.0.0.0:80: address already in use` | 80（nginx 对外） | `.env` 设 `NGINX_PORT=8080`，并**同步** `CORS_ORIGINS=http://<IP>:8080`（协议+IP+端口须与浏览器地址栏完全一致），云安全组放行 8080 |
+| `...:5432: address already in use` | 5432（postgres 调试映射） | `.env` 设 `POSTGRES_HOST_PORT=15432`（仅宿主调试端口，app 走内部网络 `postgres:5432`，不受影响） |
+| `...:6379: address already in use` | 6379（redis 调试映射） | `.env` 设 `REDIS_HOST_PORT=16379`（同上） |
+
+排查占用者：`sudo ss -tlnp | grep ':80 '`。注意占用进程**可能不是 systemd 管的 nginx**
+（`systemctl status nginx` 显示 failed，但 `ss` 里进程仍在）——那是别的服务
+手动起的反代，不要贸然 kill。postgres/redis 的调试映射已绑 `127.0.0.1`，不对公网暴露。
+
+### 8.2 nginx 反复重启：`host not found in upstream "app:3000"`
+
+nginx 在配置加载时一次性解析 `app` 服务名，若它先于 app 容器启动就会
+`[emerg]` 崩溃并被 `restart: unless-stopped` 拉起，形成循环。compose 已用
+`depends_on: app: condition: service_healthy` 让 nginx 等 app 健康后再启动。
+若仍遇到（例如手改了旧配置），先 `docker compose down` 清掉脏网络再
+`docker compose up -d`；app 变 healthy 后 `docker compose restart nginx` 即可恢复。
+
 ## 9. 注意事项
 
 - 生产环境务必设置 `JWT_SECRET` 与 `CORS_ORIGINS`。
