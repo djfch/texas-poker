@@ -2,12 +2,17 @@
   "name": "texas-poker",
   "version": "1.0.0",
   "description": "Multiplayer Texas Hold'em Poker with real-time WebSocket play and LLM-powered AI opponents",
-  "main": "server.js",
+  "main": "server.ts",
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test backend/**/*.test.js frontend/js/**/*.test.js",
-    "test:hand": "node backend/domain/hand-evaluator.test.js",
-    "test:pot": "node backend/domain/pot-manager.test.js"
+    "start": "tsx server.ts",
+    "build": "tsc",
+    "start:prod": "node dist/server.js",
+    "test": "node --import tsx --test backend/**/*.test.ts frontend/js/**/*.test.js",
+    "test:hand": "node --import tsx backend/domain/hand-evaluator.test.ts",
+    "test:pot": "node --import tsx backend/domain/pot-manager.test.ts",
+    "dev:app": "npm --prefix frontend-app run dev",
+    "build:app": "npm --prefix frontend-app run build",
+    "test:app": "npm --prefix frontend-app run test"
   },
   "keywords": [
     "poker",
@@ -18,15 +23,30 @@
   "author": "Coder Agent",
   "license": "MIT",
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.18.2",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
+    "ioredis": "^5.11.1",
+    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
+    "pg": "^8.22.0",
     "socket.io": "^4.7.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
   }
 }

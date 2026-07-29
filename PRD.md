@@ -741,4 +741,20 @@ Action {
 
 ---
 
+## 14. 后记：P1–P5 全栈升级（2026-07）
+
+MVP 验收后，项目按总体实现计划完成了从 MVP 到完整产品架构的升级，全程保持 API/WS 契约兼容：
+
+| 阶段 | 内容 |
+|------|------|
+| P1 | 前端迁移 Vue 3 + TS + Vite + Pinia + Vant + GSAP（`frontend-app/`，赌场风 UI，手机竖屏 + 桌面宽屏，动画三档降级；旧版 `frontend/` 保留回退） |
+| P2 | 后端全量 TypeScript 化（strict，CommonJS 语义不变，tsx 开发直跑 / tsc 生产构建） |
+| P3 | JWT 认证：游客与注册用户统一签发 token，bcrypt 密码哈希，激活 register/login |
+| P4 | 持久化：PostgreSQL（用户 + 牌局历史）与 Redis（运行时状态），三实现同一 Storage 契约，`STORE_BACKEND` 切换 |
+| P5 | 多实例部署：Socket.IO redis-adapter、房间级调度仲裁（Redis 锁）、房间/牌局写透持久化、Docker Compose（nginx + app×2 + postgres + redis）、GitHub Actions CI |
+
+现行架构、接口与数据模型以 `ARCHITECTURE.md`（v2.0）与 `README.md` 为准；本文档前半部分作为 MVP 需求历史存档保留。
+
+---
+
 *文档结束*

@@ -1,0 +1,12 @@
+node_modules
+frontend-app/node_modules
+dist
+frontend-app/dist
+.git
+.env
+.smoke
+.superpowers
+.playwright-cli
+*.log
+.github
+docs

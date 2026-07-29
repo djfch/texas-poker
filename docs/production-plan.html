@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>德州扑克 · MVP → 生产上线架构方案（定稿 v2）</title>
+<style>
+  :root {
+    --bg: #0e1512;
+    --panel: #16211c;
+    --panel-2: #1c2b24;
+    --line: #2b3f35;
+    --text: #e8f0ec;
+    --muted: #93a89d;
+    --green: #2ea36b;
+    --green-dim: #1d6b47;
+    --gold: #d9a92f;
+    --red: #e05252;
+    --orange: #e08a3c;
+    --blue: #4a9eda;
+    --purple: #9a7fd4;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    line-height: 1.65;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 40px; }
+  header h1 { font-size: 30px; letter-spacing: 1px; }
+  header h1 .accent { color: var(--green); }
+  header p { color: var(--muted); margin-top: 8px; font-size: 14px; }
+
+  .decided-banner {
+    background: rgba(46,163,107,.1);
+    border: 1px solid var(--green);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 48px;
+    font-size: 13.5px;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .decided-banner b { color: var(--green); }
+  .decided-banner span { color: var(--text); }
+
+  section { margin-bottom: 56px; }
+  h2 {
+    font-size: 21px;
+    border-left: 4px solid var(--green);
+    padding-left: 12px;
+    margin-bottom: 6px;
+  }
+  .section-desc { color: var(--muted); font-size: 14px; margin-bottom: 20px; padding-left: 16px; }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 10px;
+    margin-right: 8px;
+    vertical-align: 2px;
+    flex-shrink: 0;
+  }
+  .b-high { background: rgba(224,82,82,.18); color: var(--red); border: 1px solid var(--red); }
+  .b-mid  { background: rgba(224,138,60,.15); color: var(--orange); border: 1px solid var(--orange); }
+  .b-low  { background: rgba(74,158,218,.14); color: var(--blue); border: 1px solid var(--blue); }
+
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 860px) { .g2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h3 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .card h3 .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .card ul { list-style: none; }
+  .card li {
+    font-size: 13.5px;
+    padding: 7px 0;
+    border-top: 1px dashed var(--line);
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .card li:first-child { border-top: none; }
+  .card li .loc { color: var(--muted); font-family: Consolas, monospace; font-size: 12px; white-space: nowrap; }
+  .card li .txt { flex: 1; }
+
+  .stat-row { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat {
+    flex: 1; min-width: 140px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+    text-align: center;
+  }
+  .stat .num { font-size: 28px; font-weight: 800; }
+  .stat .label { font-size: 12px; color: var(--muted); }
+  .c-red { color: var(--red); } .c-orange { color: var(--orange); } .c-blue { color: var(--blue); } .c-green { color: var(--green); }
+
+  /* 架构分层图 */
+  .arch { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .layer {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 20px;
+  }
+  .layer-title { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: 1px; margin-bottom: 8px; }
+  .boxes { display: flex; gap: 10px; flex-wrap: wrap; }
+  .box {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 130px;
+    text-align: center;
+  }
+  .box small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .box.new { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green-dim); }
+  .box.new::after { content: " 新增"; color: var(--green); font-size: 11px; font-weight: 700; }
+  .box.changed { border-color: var(--gold); }
+  .box.changed::after { content: " 改造"; color: var(--gold); font-size: 11px; font-weight: 700; }
+  .arrow { color: var(--green); font-size: 18px; line-height: 1; padding: 6px 0; }
+
+  /* 路线图 */
+  .phase {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .phase-tag {
+    border-radius: 10px;
+    padding: 14px 10px;
+    text-align: center;
+    font-weight: 800;
+    align-self: start;
+  }
+  .phase-tag small { display: block; font-weight: 400; font-size: 11.5px; margin-top: 4px; opacity: .85; }
+  .p0 { background: rgba(224,82,82,.14); border: 1px solid var(--red); color: var(--red); }
+  .p1 { background: rgba(224,138,60,.12); border: 1px solid var(--orange); color: var(--orange); }
+  .p2 { background: rgba(74,158,218,.12); border: 1px solid var(--blue); color: var(--blue); }
+  .p3 { background: rgba(154,127,212,.12); border: 1px solid var(--purple); color: var(--purple); }
+  .p4 { background: rgba(46,163,107,.12); border: 1px solid var(--green); color: var(--green); }
+  .phase-body {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .phase-body h3 { font-size: 15px; margin-bottom: 6px; }
+  .phase-body ul { list-style: none; font-size: 13.5px; }
+  .phase-body li { padding: 3px 0 3px 18px; position: relative; }
+  .phase-body li::before { content: "▸"; position: absolute; left: 0; color: var(--green); }
+  .phase-body .goal { color: var(--muted); font-size: 12.5px; margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+
+  /* 功能对照 */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 9px 12px; border: 1px solid var(--line); text-align: left; }
+  th { background: var(--panel-2); font-size: 13px; }
+  td { background: var(--panel); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 8px; font-weight: 700; }
+  .t-have { background: rgba(46,163,107,.15); color: var(--green); }
+  .t-need { background: rgba(224,82,82,.15); color: var(--red); }
+  .t-later { background: rgba(74,158,218,.13); color: var(--blue); }
+  .t-no { background: rgba(147,168,157,.15); color: var(--muted); }
+
+  /* 决策卡片 */
+  .decision { border-left: 4px solid var(--green); }
+  .decision h3 { color: var(--green); }
+  .decision p { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+  .decision .chosen { color: var(--text); }
+
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>德州扑克 · <span class="accent">MVP → 生产上线</span> 架构方案</h1>
+  <p>基于 4 路并行代码审计 · 2026-07-17 · 决策已拍板（定稿 v2）</p>
+</header>
+
+<div class="decided-banner">
+  <div><b>✓ 部署：</b><span>单实例 + Nginx sticky</span></div>
+  <div><b>✓ 存储：</b><span>仅 PostgreSQL（不做战绩历史）</span></div>
+  <div><b>✓ 前端：</b><span>Next.js 重写（React + TypeScript）</span></div>
+  <div><b>✓ UI 方向：</b><span>移动端为主重新设计</span></div>
+  <div><b>✓ 账号：</b><span>仅游客，不做注册</span></div>
+  <div><b>✓ 节奏：</b><span>P0 → P4 串行推进</span></div>
+</div>
+
+<!-- ═══════════ 1. 审计发现 ═══════════ -->
+<section>
+  <h2>一、审计发现：上线前的问题地图</h2>
+  <p class="section-desc">对全部源码逐文件审计后，去重归纳为 5 类问题。高危项直接阻断上线。</p>
+
+  <div class="stat-row">
+    <div class="stat"><div class="num c-red">14</div><div class="label">高危 · 阻断上线</div></div>
+    <div class="stat"><div class="num c-orange">13</div><div class="label">中危 · 上线前应修</div></div>
+    <div class="stat"><div class="num c-blue">10</div><div class="label">低危 · 择机清理</div></div>
+    <div class="stat"><div class="num c-green">167</div><div class="label">现有测试全部通过</div></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3><span class="dot" style="background:var(--red)"></span>安全（最紧迫）</h3>
+      <ul>
+        <li><span class="badge b-high">高</span><span class="txt">WebSocket 身份可伪造：握手直接信任 <code>playerId</code>，填入他人 ID 即可劫持会话、看到他人底牌</span><span class="loc">handlers.js:32</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">REST 认证形同虚设：<code>x-player-id</code> 请求头即身份，可冒名建房/进私房</span><span class="loc">rooms.js:51</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">私密房密码明文存储、明文比对</span><span class="loc">room-manager.js:49</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">内存无界增长：游客永不回收，<code>cleanup()</code> 全仓无调用方，长期运行必 OOM</span><span class="loc">memory-store.js</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">CSP 允许 <code>unsafe-inline</code> 脚本；CORS 默认 <code>*</code>；缺 <code>trust proxy</code> 致限流失效</span><span class="loc">security.js:12</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt"><code>.env</code> 需确认未进 git 历史，AI_API_KEY(大模型密钥) 建议轮换</span><span class="loc">根目录</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot" style="background:var(--red)"></span>并发与正确性（影响牌局公平）</h3>
+      <ul>
+        <li><span class="badge b-high">高</span><span class="txt">双套超时计时器写同一字段互相覆盖，旧计时器可能误 fold 已行动玩家</span><span class="loc">game-engine.js:691 / handlers.js:688</span></li>
+        <li><span class="badge b-high">高</span><span class="txt"><code>handleAction</code> 无互斥：真人动作、超时、AI 回调在 await 点交错，可能重复发牌/重复推进阶段</span><span class="loc">game-engine.js:121</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">AI 降级链断裂：LLM 彻底失败时直接弃牌而非走规则 AI，与宣称行为不符</span><span class="loc">ai-llm-service.js:260</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">真人可把昵称改为 <code>Bot-</code> 前缀伪装 AI，被自动准备/自动借码/误踢</span><span class="loc">game-engine.js:783</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">开局事务断裂：引擎失败时房间永久卡在 playing 且无牌局对象</span><span class="loc">room-manager.js:358</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">AI 决策基于过期快照，调度无防重入，浪费 LLM 调用</span><span class="loc">handlers.js:646</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot" style="background:var(--orange)"></span>架构与耦合</h3>
+      <ul>
+        <li><span class="badge b-high">高</span><span class="txt">三大文件超拆分阈值：<code>game-engine.js</code> 791 行、<code>handlers.js</code> 798 行、<code>table.js</code> 778 行</span><span class="loc">3 个文件</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">存储返回活引用被各处直改，计时器句柄挂进游戏实体——持久化前必须 DTO 化</span><span class="loc">memory-store.js:110</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">跨层调用：player-manager 直访 store 内部 Map；socket 层调 room-manager 私有方法</span><span class="loc">player-manager.js:154</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">重复逻辑：fillRoomWithAI(AI补位)、_isAIPlayer(AI判定) 各有两份实现</span><span class="loc">ai-manager / room-manager</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">LLM 请求硬编码非标准 <code>thinking</code> 字段，部分兼容端点会 400</span><span class="loc">ai-llm-service.js:113</span></li>
+        <li><span class="badge b-low">低</span><span class="txt">领域文件内嵌 require.main 自测块，与 *.test.js 双份维护易漂移</span><span class="loc">hand-evaluator.js:452</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot" style="background:var(--orange)"></span>基础设施</h3>
+      <ul>
+        <li><span class="badge b-high">高</span><span class="txt">CI/CD 完全缺失；且测试脚本用 glob，Linux 下静默漏跑 2 个前端测试文件，Node 18 不兼容</span><span class="loc">package.json:8</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">多实例被全面锁死：内存单例 + 无 Redis adapter + 进程内定时器 + 内存限流计数</span><span class="loc">全局</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">可观测性缺口：仅 console/morgan，无结构化日志、无 /metrics、无告警</span><span class="loc">server.js:43</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">镜像隐患：root 运行、缺 .dockerignore、compose 无资源/日志限额</span><span class="loc">Dockerfile</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">测试缺口：ai-rule-engine(规则AI) 零覆盖；无 REST 集成测试；无真实 socket E2E</span><span class="loc">测试目录</span></li>
+      </ul>
+    </div>
+
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3><span class="dot" style="background:var(--orange)"></span>前端体验（由 P2 重写 + 移动端重设计一并解决）</h3>
+      <ul>
+        <li><span class="badge b-high">高</span><span class="txt">断线无任何 UI 反馈：弱网下界面静默停滞，重连 5 次失败后永久躺平、无手动重试入口</span><span class="loc">socket-client.js:48</span></li>
+        <li><span class="badge b-high">高</span><span class="txt"><code>table.js</code> 778 行五类职责混杂、嵌套达 4 层；刷新直达牌桌时有状态请求竞态</span><span class="loc">table.js:85</span></li>
+        <li><span class="badge b-high">高</span><span class="txt">移动端不可用：9 人环形座位为桌面固定坐标，竖屏必然重叠；加注滑块不适合触控</span><span class="loc">table.js:17 / table.css</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">手动维护 <code>?v=</code> 缓存版本号，漏改即新旧文件错配（Next.js 自带内容哈希，自然消解）</span><span class="loc">index.html:8</span></li>
+        <li><span class="badge b-mid">中</span><span class="txt">倒计时未校准服务器时钟；仅 768/480px 两档 media query，布局体系无断点设计</span><span class="loc">timer.js:55</span></li>
+        <li><span class="badge b-low">低</span><span class="txt">头像颜色未白名单校验可注入 style；AI 判定一处用昵称前缀一处用 isAI 字段，标准不一</span><span class="loc">seat.js:105</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 2. 目标架构 ═══════════ -->
+<section>
+  <h2>二、目标架构（定稿）</h2>
+  <p class="section-desc">后端保持现有分层骨架（它本身是健康的）；前端由 Next.js 重写、移动端优先；改造集中在<b>认证、存储、可观测性</b>三处。</p>
+
+  <div class="arch">
+    <div class="layer">
+      <div class="layer-title">客户端</div>
+      <div class="boxes">
+        <div class="box new">Next.js 前端（web/）<small>React + TypeScript · 移动端优先设计 · 断线遮罩与手动重试</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼ HTTPS / WSS ▼</div>
+    <div class="layer">
+      <div class="layer-title">接入层</div>
+      <div class="boxes">
+        <div class="box new">Nginx<small>TLS 终止 · /api 与 /socket.io → 游戏后端 · 其余 → Next.js · 静态资源缓存</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-title">游戏后端（Node.js 单实例）</div>
+      <div class="boxes">
+        <div class="box changed">Express REST<small>签名游客 token 校验中间件 · 输入校验 · 限流</small></div>
+        <div class="box changed">Socket.IO<small>io.use 握手鉴权 · 事件级限流 · 断线保留</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-title">服务层 / 领域层（拆分后）</div>
+      <div class="boxes">
+        <div class="box changed">game-engine 拆分<small>状态机 ≤400 行 + ai-context-builder + game-serializer + betting-rules</small></div>
+        <div class="box changed">handlers 拆分<small>connection / room / game / chat / turn-scheduler</small></div>
+        <div class="box">domain 纯函数<small>card · deck · hand-evaluator · pot-manager 保持不变</small></div>
+        <div class="box changed">AI 链路<small>LLM → 规则降级链修复 · 决策预算 &lt; 行动超时</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-title">存储层（接口不变，实现替换）</div>
+      <div class="boxes">
+        <div class="box new">PostgreSQL<small>游客档案（身份/昵称/筹码跨重启保留）· 不做战绩历史</small></div>
+        <div class="box changed">内存游戏态<small>进行中的牌局与房间仍存内存（DTO 化 + 显式写回）</small></div>
+        <div class="box">Redis（预留）<small>多实例时再引入：会话 / adapter / 定时器外置</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="layer">
+      <div class="layer-title">横切设施</div>
+      <div class="boxes">
+        <div class="box new">pino 结构化日志<small>请求 ID 串联</small></div>
+        <div class="box new">/metrics + 告警<small>在线人数 / 牌局数 / LLM 延迟</small></div>
+        <div class="box new">GitHub Actions CI<small>Node 18/20 矩阵 · 测试 · lint</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 3. 分期路线图 ═══════════ -->
+<section>
+  <h2>三、分期路线图（串行）</h2>
+  <p class="section-desc">严格按依赖关系排序：安全底线 → 后端重构 → 前端重写与移动端设计 → 持久化与上线设施 → 功能迭代。每期结束系统都可独立运行、可验收、可回退。</p>
+
+  <div class="phase">
+    <div class="phase-tag p0">P0<small>安全与稳定底线</small></div>
+    <div class="phase-body">
+      <h3>不修就无法公网上线（纯后端，不碰前端）</h3>
+      <ul>
+        <li>签名游客 token：创建游客时 HMAC 签发，REST 中间件 + Socket 握手双重校验，堵死身份伪造（不涉及注册体系）</li>
+        <li>per-room 动作串行队列 + 统一行动计时器（删 game-engine 内重复计时器），消除并发交错</li>
+        <li>AI 降级链修复：LLM 失败走规则引擎；isAI 改为显式布尔字段，禁改 Bot- 前缀昵称</li>
+        <li>房间密码哈希存储；确认 .env 未入 git 历史并轮换 AI_API_KEY；CSP 去 unsafe-inline；生产强制 CORS_ORIGINS</li>
+        <li>内存回收：周期性 cleanup 离线游客与空闲房间，游客创建接口加严格限流</li>
+        <li>开局事务修复：引擎失败回滚房间状态，startGame 幂等</li>
+      </ul>
+      <p class="goal">出口标准：无身份伪造路径；同一房间动作严格串行；长期运行内存稳定；167+ 测试全绿。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-tag p1">P1<small>后端架构重构</small></div>
+    <div class="phase-body">
+      <h3>按体量约定拆分 + 存储 DTO 化（为 PG 铺路）</h3>
+      <ul>
+        <li>拆分 game-engine.js(791) / handlers.js(798)：状态机只留流程编排，socket 层按 connection/room/game/chat/scheduler 分文件，均 ≤400 行</li>
+        <li>存储层 DTO 化：get 返回拷贝、写回走 update*；计时器句柄移出游戏实体（TimerService）</li>
+        <li>消除跨层调用与重复逻辑（fillRoomWithAI、_isAIPlayer 各留一份；私有方法提为公开契约）</li>
+        <li>清理：删领域文件内嵌 require.main 自测块；constants.js 去重 getConfig</li>
+        <li>补测试：ai-rule-engine 单测、并发交错与 timeoutFold 回归测试</li>
+      </ul>
+      <p class="goal">出口标准：存储实现可在不改调用方的前提下替换；npm test 全绿且 Linux 下不漏跑。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-tag p2">P2<small>前端重写 + 移动端设计</small></div>
+    <div class="phase-body">
+      <h3>web/ 新应用 + 以移动端为主的界面重设计</h3>
+      <ul>
+        <li>新建 web/（Next.js App Router + React + TypeScript）；后端 API 与 Socket 契约不变，旧 frontend/ 保留至切换完成</li>
+        <li><b>移动端优先</b>：先做竖屏线框原型评审再动手；手机竖屏可完整打完一手牌（不再"请旋转屏幕"）</li>
+        <li>触控操作区：大按钮 Fold/Check/Call，滑块 + 快捷筹码档位加注，防小屏误触</li>
+        <li>小屏座位排布：对手紧凑卡片（头像 + 昵称 + 筹码条），自己固定底部；公共牌/底池/倒计时保证小屏可读</li>
+        <li>桌面端自适应：宽屏居中牌桌，建立系统断点（手机竖屏 / 平板 / 桌面）</li>
+        <li>socket 封装为 React hook：自动重连、断线遮罩（重连中 第N次）、失败后手动重试</li>
+        <li>状态管理用 React 内建（useReducer + Context），不引额外状态库；倒计时按服务器时钟偏移校准</li>
+      </ul>
+      <p class="goal">出口标准：手机竖屏可完整打完一手牌且操作顺畅；新旧前端功能对等；Nginx 切流后旧 frontend/ 下线。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-tag p3">P3<small>持久化与上线设施</small></div>
+    <div class="phase-body">
+      <h3>游客档案持久化 + 可部署、可观测</h3>
+      <ul>
+        <li>接入 PostgreSQL：guests(游客档案) 表起步，新增 PostgresStore 实现，存储接口不变；游客身份与筹码跨重启保留（不做战绩历史）</li>
+        <li>CI：GitHub Actions 跑 Node 18/20 矩阵；测试脚本改目录式调用，消除 Linux 静默漏跑</li>
+        <li>pino 结构化日志 + 请求 ID；/metrics 暴露在线人数/牌局数/LLM 延迟与失败率</li>
+        <li>Docker 加固：非 root 运行、.dockerignore、compose 资源与日志限额；Nginx 配置落仓</li>
+        <li>补测试：REST 集成测试、1-2 条真实 socket.io-client E2E</li>
+      </ul>
+      <p class="goal">出口标准：一条命令部署；重启不丢游客身份；关键指标有看板、核心链路有告警。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-tag p4">P4<small>上线后功能迭代</small></div>
+    <div class="phase-body">
+      <h3>按用户反馈排优先级</h3>
+      <ul>
+        <li>排行榜（需先恢复战绩/盈亏统计，届时单独评估）</li>
+        <li>观战模式、牌谱回放</li>
+        <li>注册/登录/游客升级（需要时再补账号体系）</li>
+        <li>锦标赛模式（多桌、升盲结构）</li>
+        <li>多实例水平扩展：Redis adapter + 游戏态外置（触发条件：单实例撑不住）</li>
+      </ul>
+      <p class="goal">原则：每一项都依赖 P3 的数据与设施基础，不提前动工。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 4. 功能清单 ═══════════ -->
+<section>
+  <h2>四、功能清单对照</h2>
+  <p class="section-desc">对照 PRD 与审计结论，明确"已有 / 上线必须补 / 不做 / 上线后迭代"四档。</p>
+  <table>
+    <tr><th>功能</th><th>状态</th><th>说明</th></tr>
+    <tr><td>游客模式 / 房间系统 / 完整规则 / AI 补位 / 断线重连 / 基础聊天</td><td><span class="tag t-have">已有</span></td><td>MVP 已完成，随 P0/P1 修复缺陷</td></tr>
+    <tr><td>签名游客 token（防伪）</td><td><span class="tag t-need">P0</span></td><td>不是注册体系，仅给游客身份加签名，堵死伪造</td></tr>
+    <tr><td>前端 Next.js 重写 + 移动端 UI 重设计</td><td><span class="tag t-need">P2</span></td><td>移动端为一等公民：竖屏牌桌、触控加注、断线遮罩；桌面端自适应</td></tr>
+    <tr><td>游客档案持久化</td><td><span class="tag t-need">P3</span></td><td>身份/昵称/筹码跨重启保留（PostgreSQL）</td></tr>
+    <tr><td>监控告警 / 结构化日志 / CI</td><td><span class="tag t-need">P3</span></td><td>上线的"安全带"</td></tr>
+    <tr><td>游戏历史记录 / 战绩</td><td><span class="tag t-no">不做</span></td><td>已拍板：本期不做；排行榜因此暂缓</td></tr>
+    <tr><td>注册 / 登录 / 游客升级</td><td><span class="tag t-no">不做</span></td><td>已拍板：仅游客；需要时再补账号体系</td></tr>
+    <tr><td>排行榜</td><td><span class="tag t-later">P4</span></td><td>依赖战绩统计，需先恢复统计再评估</td></tr>
+    <tr><td>观战 / 回放 / 锦标赛 / 好友</td><td><span class="tag t-later">P4</span></td><td>按上线后反馈排序</td></tr>
+  </table>
+</section>
+
+<!-- ═══════════ 5. 决策记录 ═══════════ -->
+<section>
+  <h2>五、决策记录（已拍板）</h2>
+  <p class="section-desc">2026-07-17 由项目所有者确认，后续实施以此为准。</p>
+
+  <div class="grid">
+    <div class="card decision">
+      <h3>Q1 · 部署形态</h3>
+      <p class="chosen">✓ 单实例 + Nginx sticky session。Redis 化留作 P4 触发式演进（单实例撑不住时再议）。</p>
+    </div>
+    <div class="card decision">
+      <h3>Q2 · 持久化选型</h3>
+      <p class="chosen">✓ 仅 PostgreSQL，且不做战绩历史。仅承担游客档案持久化（身份/昵称/筹码跨重启保留）。</p>
+    </div>
+    <div class="card decision">
+      <h3>Q3 · 前端路线</h3>
+      <p class="chosen">✓ Next.js 重写（React + TypeScript）。新建 web/ 应用，旧 frontend/ 保留至切换完成；部署为双进程，Nginx 按路径分流。</p>
+    </div>
+    <div class="card decision">
+      <h3>Q4 · 认证体系</h3>
+      <p class="chosen">✓ 仅游客，不做注册。P0 只做签名游客 token 防伪造；注册/登录/游客升级留待后期需要时再补。</p>
+    </div>
+    <div class="card decision">
+      <h3>Q5 · 推进节奏</h3>
+      <p class="chosen">✓ 串行分期：P0 → P1 → P2 → P3 → P4，每期可验收可回退，风险最低。</p>
+    </div>
+    <div class="card decision">
+      <h3>Q6 · UI 优化方向</h3>
+      <p class="chosen">✓ 移动端为主。P2 重写即按移动端优先重新设计：竖屏可用的牌桌、触控操作、系统断点；桌面端自适应增强。</p>
+    </div>
+  </div>
+</section>
+
+<footer>本文件由 4 路代码审计结论汇总生成 · 架构决策已确认（v2：不做战绩历史、移动端为主）· 实施过程中如有偏差同步更新 README.md / ARCHITECTURE.md / AGENTS.md</footer>
+
+</div>
+</body>
+</html>

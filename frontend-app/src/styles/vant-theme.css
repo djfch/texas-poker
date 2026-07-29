@@ -1,0 +1,61 @@
+/**
+ * Vant 4 theme overrides via its CSS variables.
+ * Aligns buttons, dialogs, fields and sliders with the casino tokens.
+ * Loaded after vant/lib/index.css so these variables win.
+ */
+
+:root {
+  /* ── Global palette ──────────────────────────────────────── */
+  --van-primary-color: var(--casino-green);
+  --van-success-color: var(--casino-green-light);
+  --van-danger-color: var(--casino-danger);
+  --van-warning-color: var(--casino-gold);
+  --van-text-color: var(--casino-ivory);
+  --van-text-color-2: var(--casino-ivory-dim);
+  --van-text-color-3: var(--casino-gold-deep);
+  --van-background: var(--casino-felt-bg);
+  --van-background-2: var(--casino-green-deep);
+  --van-active-color: rgba(212, 175, 55, 0.12);
+  --van-border-color: var(--casino-gold-deep);
+
+  /* ── Buttons: gold primary with dark text ────────────────── */
+  --van-button-primary-color: var(--casino-ink);
+  --van-button-primary-background: var(--casino-gold);
+  --van-button-primary-border-color: var(--casino-gold);
+  --van-button-default-color: var(--casino-ivory);
+  --van-button-default-background: var(--casino-green-deep);
+  --van-button-default-border-color: var(--casino-gold-deep);
+  --van-button-border-radius: var(--casino-radius-md);
+  --van-button-plain-background: transparent;
+
+  /* ── Dialog: deep green panel with gold accents ──────────── */
+  --van-dialog-background: var(--casino-green-deep);
+  --van-dialog-border-radius: var(--casino-radius-lg);
+  --van-dialog-header-font-weight: 600;
+  --van-dialog-has-title-message-text-color: var(--casino-ivory-dim);
+  --van-dialog-confirm-button-text-color: var(--casino-gold);
+  --van-dialog-cancel-button-color: var(--casino-ivory-dim);
+
+  /* ── Field / input ───────────────────────────────────────── */
+  --van-cell-background: var(--casino-green-deep);
+  --van-cell-text-color: var(--casino-ivory);
+  --van-cell-border-color: var(--casino-gold-deep);
+  --van-field-label-color: var(--casino-gold);
+  --van-field-input-text-color: var(--casino-ivory);
+  --van-field-placeholder-text-color: var(--casino-ivory-dim);
+  --van-field-error-message-color: var(--casino-danger);
+
+  /* ── Slider (bet sizing) ─────────────────────────────────── */
+  --van-slider-inactive-background: rgba(245, 240, 225, 0.2);
+  --van-slider-active-background: var(--casino-gold);
+  --van-slider-bar-height: 6px;
+  --van-slider-button-width: 26px;
+  --van-slider-button-height: 26px;
+  --van-slider-button-background: var(--casino-gold-light);
+  --van-slider-button-box-shadow: var(--casino-shadow-gold);
+
+  /* ── Overlay / toast ─────────────────────────────────────── */
+  --van-overlay-background: rgba(6, 20, 14, 0.75);
+  --van-toast-background: var(--casino-green-deep);
+  --van-toast-text-color: var(--casino-ivory);
+}

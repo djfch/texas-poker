@@ -1,0 +1,18 @@
+Card Face SVGs (52 files: [rank][suit].svg, e.g. AS.svg, TH.svg)
+=================================================================
+Source:  https://github.com/notpeter/Vector-Playing-Cards
+         (files under cards-svg/, based on Byron Knoll's
+         "vector-playing-cards" originally published on Google Code)
+License: Public domain (or optionally WTFPL where public domain is
+         not a recognized legal concept). The original artwork was
+         released into the public domain by Byron Knoll.
+Note:    Files were renamed after download: the "10" rank prefix was
+         shortened to "T" (e.g. 10H.svg -> TH.svg) to match this
+         project's naming convention. Artwork is unmodified.
+
+Card Back SVG (back.svg)
+========================
+Source:  https://commons.wikimedia.org/wiki/File:Atlas_deck_card_back_blue_and_brown.svg
+         (Atlas deck card back, 19th-century National Card Co. design)
+License: CC0 1.0 Universal (Public Domain Dedication)
+         https://creativecommons.org/publicdomain/zero/1.0/

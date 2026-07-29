@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | v1.0 |
+| 文档版本 | v2.0（P1–P5 全栈升级后） |
 | 创建日期 | 2026-06-29 |
-| 架构师 | Architect Agent |
-| 状态 | 设计完成 |
+| 最后更新 | 2026-07-29 |
+| 状态 | 与实现同步 |
 
 ---
 
@@ -15,20 +15,19 @@
 
 | 层级 | 技术 | 理由 |
 |------|------|------|
-| 后端运行时 | Node.js 20+ | 事件驱动、单线程模型天然适合 WebSocket 并发；生态成熟；PRD 要求 |
-| Web 框架 | Express 4.x | 轻量、稳定、社区最大，足够满足 MVP REST API 需求 |
-| 实时通信 | Socket.IO 4.x | 自动降级、断线重连、房间机制、心跳检测，完美匹配需求 |
-| 前端 | 原生 HTML5 + CSS3 + ES6 | 零构建依赖、快速迭代、MVP 阶段无需框架 overhead |
-| 存储 | 内存（In-Memory） | MVP 快速验证，模块隔离后后续可替换为 Redis/PostgreSQL |
-| 测试 | Jest + Node.js 内置 test runner | 核心逻辑（牌型判断、底池计算）需要高覆盖率 |
+| 后端运行时 | Node.js 22+ / TypeScript（strict，CommonJS 语义） | 事件驱动模型适合 WebSocket 并发；类型系统保障重构安全；tsx 开发直跑，tsc 生产构建 |
+| Web 框架 | Express 4.x | 轻量、稳定、社区最大 |
+| 实时通信 | Socket.IO 4.x + `@socket.io/redis-adapter`（多实例） | 自动降级、断线重连、房间机制；adapter 跨实例广播 |
+| 认证 | JWT（jsonwebtoken）+ bcryptjs | 游客与注册用户统一 token；无原生依赖 |
+| 前端 | Vue 3 + TS + Vite + Pinia + Vue Router + Vant + GSAP | 组件化 + 类型安全；赌场风 UI 与动画；旧版原生前端保留作回退 |
+| 存储 | 三实现同一 Storage 契约：内存 Map / PostgreSQL（pg）/ Redis（ioredis） | `STORE_BACKEND` 切换；内存默认零依赖；pg 落用户+历史；redis 支撑多实例 |
+| 测试 | node:test（后端）+ Vitest（前端） | 核心逻辑（牌型、底池、写透）高覆盖 |
 
-### 1.2 不引入的依赖（MVP 阶段）
+### 1.2 不引入的依赖
 
-- 不使用 TypeScript（减少编译步骤，快速迭代）
-- 不使用前端框架（React/Vue）（原生 JS 足够）
-- 不使用 ORM（数据模型简单，直接操作对象）
-- 不使用 Redis/PostgreSQL（MVP 阶段内存存储）
-- 不使用 JWT（MVP 使用 sessionId + 内存映射，后续可升级）
+- 不使用 ORM（手写 SQL 迁移与查询，数据模型简单）
+- 不更换 Express（现有中间件链稳定）
+- 不引入 React 等第二套前端框架
 
 ---
 
@@ -179,60 +178,65 @@ texas-poker/
 ├── ARCHITECTURE.md          # 本架构文档
 ├── PRD.md                   # 产品需求文档
 ├── TASKS.md                 # 开发任务列表
-├── package.json             # 项目依赖
-├── server.js                # 入口文件：启动 Express + Socket.IO
+├── package.json             # 后端依赖与脚本
+├── tsconfig.json            # 后端 TS 配置（strict、commonjs、outDir dist）
+├── server.ts                # 入口：Express + Socket.IO、redis-adapter/scheduler 接线
+├── Dockerfile               # 多阶段镜像（前端构建 + 后端 tsc + 运行时）
+├── docker-compose.yml       # 生产拓扑：nginx + app×2 + postgres + redis
+├── deploy/nginx.conf        # 粘性反代（ip_hash + WebSocket 升级）
 ├── README.md                # 项目说明
 │
 ├── backend/
 │   ├── config/
-│   │   └── constants.js     # 游戏常量（超时时间、默认盲注等）
+│   │   ├── constants.ts     # 游戏常量与环境变量（冻结对象）
+│   │   └── security.ts      # helmet/CSP 等安全配置
 │   │
 │   ├── domain/              # 领域逻辑层（纯函数，无状态，可独立测试）
-│   │   ├── card.js          # Card 类 + 牌面值/花色定义
-│   │   ├── deck.js          # Deck 类（生成、洗牌、发牌）
-│   │   ├── hand-evaluator.js # 牌型评估引擎（7选5最优牌型）
-│   │   └── pot-manager.js   # 底池计算引擎（主池+边池）
+│   │   ├── card.ts          # Card 类 + 牌面值/花色定义
+│   │   ├── deck.ts          # Deck 类（生成、洗牌、发牌）
+│   │   ├── hand-evaluator.ts # 牌型评估引擎（7选5最优牌型）
+│   │   └── pot-manager.ts   # 底池计算引擎（主池+边池）
 │   │
-│   ├── services/            # 服务层（有状态，管理游戏生命周期）
-│   │   ├── player-manager.js # 玩家/用户管理（游客、注册、连接映射）
-│   │   ├── room-manager.js   # 房间管理（创建、加入、准备、开始）
-│   │   ├── game-engine.js    # 游戏引擎（状态机、轮次推进、行动处理）
-│   │   └── ai-manager.js     # AI 管理器（生成 AI、决策、延迟模拟）
+│   ├── services/            # 服务层（有状态，管理游戏生命周期，单例导出）
+│   │   ├── auth-service.ts  # JWT 签发/验证（guest 与 user token）
+│   │   ├── player-manager.ts # 玩家/用户管理（游客、注册、连接映射）
+│   │   ├── room-manager.ts   # 房间管理（创建、加入、准备、开始；写透存储）
+│   │   ├── game-engine.ts    # 游戏引擎（状态机、轮次推进、行动处理；写透存储）
+│   │   ├── action-queue.ts   # 每房间动作串行队列
+│   │   ├── ai-manager.ts     # AI 管理器（生成 AI、决策路由）
+│   │   ├── ai-llm-service.ts # 大模型调用（OpenAI-compatible）
+│   │   └── ai-rule-engine.ts # 规则型 AI（LLM 失败降级）
 │   │
-│   ├── storage/             # 存储层（MVP 内存实现，后续可替换）
-│   │   └── memory-store.js  # 内存 Map 存储（players, rooms, games）
+│   ├── storage/             # 存储层（三实现同一契约）
+│   │   ├── index.ts         # 存储工厂：按 STORE_BACKEND 装配
+│   │   ├── memory-store.ts  # 内存 Map 实现（默认）+ Storage 接口定义
+│   │   ├── postgres-store.ts # 用户 CRUD + 牌局历史（手写 SQL）
+│   │   ├── redis-store.ts   # players/rooms/games JSON + 滑动 TTL
+│   │   ├── pg-client.ts     # pg 连接池与迁移执行
+│   │   ├── game-serializer.ts # 牌局实体序列化/复活（Deck/PotManager）
+│   │   └── migrations/      # SQL 迁移脚本（0001_init.sql）
 │   │
 │   ├── routes/              # REST API 路由
-│   │   ├── auth.js          # /api/auth/* (register, login, guest)
-│   │   └── rooms.js         # /api/rooms/* (list, create, join, detail)
+│   │   ├── auth.ts          # /api/auth/*（guest/register/login，均签发 JWT）
+│   │   ├── auth-required.ts # 认证中间件（Bearer token，兼容 x-player-id）
+│   │   └── rooms.ts         # /api/rooms/*（list/create/join/detail）
 │   │
 │   └── socket/              # WebSocket 事件处理器
-│       ├── index.js         # Socket.IO 初始化 + 连接管理
-│       ├── room-events.js   # 房间相关事件 (room:join, room:leave, ...)
-│       ├── game-events.js   # 游戏相关事件 (game:action, ...)
-│       └── chat-events.js   # 聊天事件 (chat:message)
+│       ├── handlers.ts      # Socket.IO 初始化、握手认证、连接/断线管理
+│       ├── events.ts        # 房间与游戏事件处理
+│       └── scheduler-owner.ts # 多实例房间级调度归属（Redis 锁仲裁）
 │
-└── frontend/
-    ├── index.html           # 入口页面（SPA 路由，根据 hash 切换视图）
-    ├── css/
-    │   ├── base.css         # 基础样式、变量、重置
-    │   ├── lobby.css        # 大厅页面样式
-    │   └── table.css        # 牌桌页面样式
-    └── js/
-        ├── app.js           # 前端入口：初始化、路由、Socket 连接
-        ├── api.js           # HTTP API 封装（fetch 封装）
-        ├── socket-client.js # Socket.IO 客户端连接 + 事件监听
-        ├── views/
-        │   ├── lobby.js     # 大厅视图（房间列表、创建房间、快速开始）
-        │   ├── room.js      # 房间视图（座位、准备、聊天）
-        │   └── table.js     # 牌桌视图（游戏核心 UI、操作按钮）
-        └── components/
-            ├── card.js      # 卡牌渲染组件
-            ├── seat.js      # 座位组件
-            ├── chips.js     # 筹码显示组件
-            ├── pot.js       # 底池显示组件
-            ├── timer.js     # 倒计时组件
-            └── actions.js   # 操作按钮组件（Fold/Check/Call/Raise/All-in）
+├── frontend-app/            # Vue 3 新前端（Vite + Pinia + Vant + GSAP）
+│   └── src/
+│       ├── views/           # LobbyView / RoomView / TableView
+│       ├── components/      # lobby / room / table 组件
+│       ├── stores/          # Pinia：player / lobby / room / game
+│       ├── services/        # api.ts / socket.ts（自动重连 + 状态拉取）
+│       ├── animations/      # GSAP 动画（三档降级）
+│       ├── types/           # 与后端事件/负载对齐的类型
+│       └── utils/           # seat-layout / card-asset 等纯函数
+│
+└── frontend/                # 旧版原生前端（回退用，验收后可归档）
 ```
 
 ---
@@ -241,80 +245,87 @@ texas-poker/
 
 ```
 ┌────────────────────────────────────────────────────┐
-│                    server.js                        │
+│                    server.ts                        │
 │  (Express + Socket.IO 启动，依赖所有模块)              │
 └──────────┬──────────────────────────┬──────────────┘
            │                          │
            ▼                          ▼
 ┌──────────────────┐      ┌──────────────────────┐
 │   routes/         │      │     socket/           │
-│   auth.js         │      │   index.js           │
-│   rooms.js        │      │   room-events.js     │
-└────────┬─────────┘      │   game-events.js     │
-         │               └──────────┬───────────┘
+│   auth.ts         │      │   handlers.ts        │
+│   auth-required.ts│      │   events.ts          │
+│   rooms.ts        │      │   scheduler-owner.ts │
+└────────┬─────────┘      └──────────┬───────────┘
          │                          │
          ▼                          ▼
 ┌──────────────────┐      ┌──────────────────────┐
 │  services/        │      │    services/         │
-│  player-manager.js│      │  room-manager.js     │
-│                   │      │  game-engine.js      │
-└────────┬─────────┘      │  ai-manager.js       │
+│  auth-service.ts  │      │  room-manager.ts     │
+│  player-manager.ts│      │  game-engine.ts      │
+└────────┬─────────┘      │  ai-manager.ts       │
          │               └──────────┬───────────┘
-         │                          │
          │                          │
          │    ┌─────────────────────┘
          │    │
          ▼    ▼
 ┌──────────────────┐      ┌──────────────────────┐
 │   storage/       │      │     domain/          │
-│  memory-store.js  │      │   card.js            │
-│                   │      │   deck.js            │
-└──────────────────┘      │   hand-evaluator.js  │
-                          │   pot-manager.js     │
-                          └──────────────────────┘
+│  index.ts（工厂）  │      │   card.ts            │
+│  memory-store.ts  │      │   deck.ts            │
+│  postgres-store.ts│      │   hand-evaluator.ts  │
+│  redis-store.ts   │      │   pot-manager.ts     │
+└──────────────────┘      └──────────────────────┘
 ```
 
 ### 依赖规则
 
 1. **domain/** 层不依赖任何其他层（纯函数，独立测试）
-2. **storage/** 层不依赖任何其他层（基础数据结构）
+2. **storage/** 层只依赖 domain（game-serializer 复活类实例）与 config
 3. **services/** 层依赖 domain + storage，services 之间不循环依赖
 4. **routes/** 依赖 services + storage
 5. **socket/** 依赖 services + storage
-6. **frontend/** 独立，只通过 HTTP/WebSocket 与服务端通信
+6. **frontend-app/** 与 **frontend/** 独立，只通过 HTTP/WebSocket 与服务端通信
 
 ---
 
 ## 5. 接口契约
 
-### 5.1 内存存储接口（MemoryStore）
+### 5.1 存储接口（Storage 契约）
 
-所有存储操作返回 Promise，后续替换为 Redis/PostgreSQL 时无需修改调用方。
+接口定义在 `backend/storage/memory-store.ts`，三个实现（memory / postgres / redis）共享同一契约，由 `backend/storage/index.ts` 按 `STORE_BACKEND` 装配；所有方法返回 Promise，同一套契约测试（`storage-contract.test.ts`）对三实现全部运行。
 
-```javascript
-// storage/memory-store.js
-class MemoryStore {
-  // === 用户 ===
-  async createPlayer(player) → Player
-  async getPlayer(id) → Player | null
-  async getPlayerBySocket(socketId) → Player | null
-  async updatePlayer(id, updates) → Player
-  async deletePlayer(id) → void
+```typescript
+// backend/storage/memory-store.ts — Storage 接口（节选）
+interface Storage {
+  // === 玩家 ===
+  createPlayer(player) / getPlayer(id) / getPlayerBySocket(socketId)
+  updatePlayer(id, updates) / deletePlayer(id) / listPlayers()
+
+  // === Socket 链接 ===
+  linkSocket(socketId, playerId) / unlinkSocket(socketId)
+  getPlayerIdBySocket(socketId) / getSocketByPlayerId(playerId)
 
   // === 房间 ===
-  async createRoom(room) → Room
-  async getRoom(id) → Room | null
-  async updateRoom(id, updates) → Room
-  async deleteRoom(id) → void
-  async listRooms(filter) → Room[]
+  createRoom(room) / getRoom(id) / updateRoom(id, updates)
+  deleteRoom(id) / listRooms(filter)
 
   // === 牌局 ===
-  async createGame(game) → Game
-  async getGame(id) → Game | null
-  async updateGame(id, updates) → Game
-  async deleteGame(id) → void
+  createGame(game) / getGame(roomId) / updateGame(roomId, updates) / deleteGame(roomId)
 }
 ```
+
+**写透语义（关键约束）**：内存实现返回 live 对象（直接改即生效）；redis 实现每次读返回 JSON 反序列化的新副本。因此服务层对 room/player/game 的任何变更后必须显式调用 `updateRoom/updatePlayer/updateGame` 写回；循环内多次变更需每轮重读最新快照。牌局实体含类实例（Deck/PotManager），由 `game-serializer.ts` 负责序列化与复活。
+
+**Redis 键规范与 TTL**（`backend/storage/redis-store.ts`）：
+
+| 键 | 内容 | 备注 |
+|----|------|------|
+| `poker:player:{id}` | 玩家 JSON | 滑动 TTL，每次写刷新 |
+| `poker:room:{id}` | 房间 JSON | 同上 |
+| `poker:game:{roomId}` | 牌局 JSON（序列化后） | 同上 |
+| `poker:socket:{socketId}` / `poker:socket_by_player:{playerId}` | 双向 socket 链接 | 字符串键 |
+| `poker:lock:room:{roomId}` | 房间调度归属锁 | 30s TTL，Lua 原子抢/续锁（scheduler-owner） |
+| `poker:sched` | 调度信号 pub/sub 频道 | 非 owner 实例通知 owner |
 
 ### 5.2 领域层接口
 
@@ -360,77 +371,70 @@ class PotManager {
 ### 5.3 服务层接口
 
 #### PlayerManager
-```javascript
+```typescript
 class PlayerManager {
   createGuest(socketId) → Player              // 创建游客
-  register(username, password) → Player       // 注册用户（MVP 后）
-  login(username, password) → Player        // 登录（MVP 后）
-  getOrCreateGuest(socketId) → Player       // 获取或创建游客
-  disconnectPlayer(socketId) → void         // 断线处理
+  register(username, password) → AuthResult   // 注册（bcrypt 哈希）
+  login(username, password) → AuthResult      // 登录（防 timing attack）
+  getOrCreateGuest(socketId) → Player          // 获取或创建游客
+  setPlayerSocket(playerId, socketId) → Player // 重绑 socket（重连）
+  disconnectPlayer(playerId) → Player          // 断线处理
+  updateNickname(playerId, nickname) → Result  // 改昵称
 }
 ```
 
 #### RoomManager
-```javascript
+```typescript
 class RoomManager {
-  createRoom(config, hostId) → Room           // 创建房间
-  joinRoom(roomId, playerId, password?) → Room  // 加入房间
-  leaveRoom(roomId, playerId) → Room        // 离开房间
-  sit(roomId, playerId, position) → Room    // 入座
-  stand(roomId, playerId) → Room            // 离座
-  ready(roomId, playerId, ready) → Room     // 准备/取消
-  startGame(roomId, hostId) → Game          // 房主开始游戏
-  listPublicRooms() → Room[]                // 公开房间列表
-  fillWithAI(roomId) → Room                 // AI 填充空位
+  createRoom(hostId, config) → Room             // 创建房间（房主自动加入）
+  joinRoom(roomId, playerId, password?) → Result  // 加入房间
+  leaveRoom(roomId, playerId) → Result          // 离开（含离房结算）
+  sit(roomId, playerId, position) → Result      // 入座
+  stand(roomId, playerId) → Result              // 离座
+  ready(roomId, playerId, isReady) → Result     // 准备/取消
+  borrowChips(roomId, playerId) → Result        // 破产后借一份初始筹码
+  startGame(roomId, hostId) → Result            // 房主开始游戏
+  listPublicRooms() → Room[]                    // 公开房间列表
+  fillRoomWithAI(roomId, aiManager) → Bot[]     // AI 填充空位（每轮重读快照）
+  addAI / removeAI(roomId, ...) → Result        // 单个 AI 增减
 }
+// 所有变更路径经 _persistRoom/_persistPlayer 写透存储（写失败记日志并抛出）
 ```
 
 #### GameEngine
-```javascript
+```typescript
 class GameEngine {
-  constructor(room)                         // 初始化新牌局
-  
-  // 核心状态机推进
-  start() → GameState                       // 开始游戏（发底牌、进入 PRE_FLOP）
-  action(position, type, amount?) → GameState  // 处理玩家行动
-  
-  // 内部流转（根据 action 结果自动调用）
-  dealFlop() → GameState                    // 发 Flop
-  dealTurn() → GameState                    // 发 Turn
-  dealRiver() → GameState                   // 发 River
-  showdown() → GameState                    // 摊牌
-  distributePot() → GameState               // 分配底池
-  nextHand() → GameState                    // 下一局
-  
+  // 每房间动作经 action-queue 串行（公开方法包一层队列，_前缀为实现）
+  startGame(roomId) → Result                    // 发底牌、盲注、进入 preflop
+  handleAction(roomId, playerId, action, amount?) → Result  // 处理玩家行动（自动推进轮次/摊牌/结算）
+  nextHand(roomId) → Result                     // 下一局（移庄家位）
+
   // 查询
-  getState() → GameState                    // 获取完整状态（用于广播）
-  getCurrentPlayer() → number               // 当前行动玩家位置
-  getValidActions(position) → Action[]      // 某玩家当前可用的行动列表
-  isPlayerTurn(position) → boolean          // 是否轮到该玩家
-  
-  // 断线处理
-  timeoutFold(position) → GameState         // 超时弃牌
-  playerDisconnect(position) → GameState   // 玩家断线（自动 fold）
+  getGameState(roomId, playerId) → GameState    // 脱敏状态（他人底牌 null）
+  getPrivateDeals(roomId) → PrivateDeal[]       // 按玩家分发的底牌
+  getValidActions(roomId, playerId) → Action[]  // 当前合法动作
+  isPlayerTurn(roomId, playerId) → boolean
+  getAIDecisionContext(roomId, playerId) → Context  // AI 决策上下文（不泄露他人底牌）
+
+  // 超时/断线
+  timeoutFold(roomId, seatPosition) → Result    // 超时弃牌
+  playerDisconnect(roomId, playerId) → Result   // 断线处理
 }
 ```
 
 #### AIManager
-```javascript
+```typescript
 class AIManager {
-  createBot(roomId, style?) → Player        // 创建 AI 玩家
-  decideAction(gameState, botPosition) → { type, amount?, delayMs }  // AI 决策
-  removeBot(roomId, position) → void       // 移除 AI
+  createBot(roomId, position, style?) → Player  // 创建 AI 玩家（唯一昵称 Bot-*）
+  removeBot(roomId, position) → boolean         // 移除 AI
+  fillRoomWithAI(roomId) → Player[]             // 填满空位（每轮重读快照）
+  decide(gameState, playerId) → Decision        // LLM 优先，失败降级规则
+  decideWithRules(gameState, playerId) → Decision
 }
 
-// AI 决策策略（基于规则）
-// 输入：gameState（公共牌、底池、手牌强度、位置、筹码）
-// 输出：action 类型 + 金额 + 模拟延迟
-// 策略：
-//   - 手牌强度评分（0-100）
-//   - 底池赔率
-//   - 位置因素（后位更有利）
-//   - 风格偏移（保守/激进/平衡）
-//   - 筹码深度
+// 决策链路：game-engine → ai-manager → ai-llm-service（LLM）
+//            → 失败时 ai-rule-engine（规则降级，AI_FALLBACK_ENABLED）
+// LLM 非法返回最多重试 2 次，仍失败自动弃牌；原始返回全量打日志
 ```
 
 ### 5.4 WebSocket 事件契约
@@ -447,6 +451,8 @@ class AIManager {
 | `seat:stand` | `{}` | 已入座玩家 | 离座 |
 | `game:action` | `{ type, amount? }` | 当前行动玩家 | 验证后执行，广播 |
 | `chat:message` | `{ text }` | 任何玩家 | 广播给房间内其他玩家 |
+
+另有：`room:borrow_chips`（借筹码）、`room:add_ai` / `room:remove_ai`（AI 增减）、`player:update_nickname`（改昵称）、`game:request_state`（重连后拉取完整状态）。完整事件表见 `backend/socket/events.ts` 与 `frontend-app/src/types/events.ts`。
 
 #### 服务端 → 客户端
 
@@ -472,21 +478,23 @@ class AIManager {
 
 ### 5.5 REST API 契约
 
+认证：三个 auth 端点均返回 `{ player, token }`（JWT）；后续请求以 `Authorization: Bearer <token>` 携带，兼容期仍支持 `x-player-id` 头（`auth-required.ts` 中间件）。
+
 | 方法 | 路径 | 请求体 | 响应 | 说明 |
 |------|------|--------|------|------|
-| POST | `/api/auth/guest` | `{}` | `{ player }` | 创建游客 |
-| POST | `/api/auth/register` | `{ username, password }` | `{ player }` | 注册（MVP后） |
-| POST | `/api/auth/login` | `{ username, password }` | `{ player }` | 登录（MVP后） |
+| POST | `/api/auth/guest` | `{ nickname? }` | `{ player, token }` | 创建游客（guest JWT） |
+| POST | `/api/auth/register` | `{ username, password }` | `{ player, token }` | 注册（用户名唯一，bcrypt 哈希，user JWT） |
+| POST | `/api/auth/login` | `{ username, password }` | `{ player, token }` | 登录（防 timing attack） |
 | GET | `/api/rooms` | - | `{ rooms: Room[] }` | 公开房间列表 |
 | POST | `/api/rooms` | `{ name, maxPlayers, smallBlind, bigBlind, initialChips, allowAI, password? }` | `{ room }` | 创建房间 |
 | GET | `/api/rooms/:id` | - | `{ room }` | 房间详情 |
 | POST | `/api/rooms/:id/join` | `{ password? }` | `{ room }` | 加入房间 |
-| GET | `/api/user/profile` | - | `{ player }` | 获取当前用户信息（通过 cookie/session） |
-| GET | `/api/user/history` | - | `{ games: Game[] }` | 游戏历史（MVP后） |
 
 ---
 
-## 6. 数据模型（内存存储格式）
+## 6. 数据模型（存储对象格式）
+
+下列对象同时是内存 store 的 live 对象形态与 redis store 的 JSON 文档形态（牌局中的 Deck/PotManager 类实例由 game-serializer 序列化/复活）；postgres 另有 users、hand_history 两张表（见 `migrations/0001_init.sql`）。
 
 ```javascript
 // Player (内存对象)
@@ -504,7 +512,7 @@ class AIManager {
   lastLoginAt: number   // 时间戳
 }
 
-// Room (内存对象)
+// Room (存储对象)
 {
   id: string,          // 6位房间号
   name: string,
@@ -516,10 +524,12 @@ class AIManager {
   allowAI: boolean,
   password: string | null,
   status: 'waiting' | 'playing' | 'ended',
-  seats: Seat[],        // 9个座位（位置 0-8）
-  players: string[],    // 加入房间的玩家 ID（不一定入座）
+  seats: (string | null)[],  // 9 个座位，存 playerId 或 null
+  players: RoomPlayer[],     // 房间成员（含未入座）：{ playerId, nickname, seatPosition, isReady, chips, buyInTotal, borrowCount, isAI }
   chatHistory: ChatMessage[],
   currentGameId: string | null,
+  dealerPosition: number | null,
+  awaitingNextHandReady: boolean,
   createdAt: number
 }
 
@@ -677,44 +687,58 @@ class AIManager {
 
 ---
 
-## 9. 扩展性设计
+## 9. 多实例架构（P5）
 
-### 9.1 存储层可替换
+### 9.1 拓扑
 
-```javascript
-// 当前：MemoryStore
-// 未来：RedisStore（实现相同接口）
-// 未来：PostgresStore（实现相同接口）
-// 只需修改 new MemoryStore() 为 new RedisStore()，无需改其他代码
+```
+客户端 ──▶ nginx（ip_hash 粘性）─┬─▶ app 实例 1 ─┬─▶ PostgreSQL（用户/历史）
+                             └─▶ app 实例 2 ─┴─▶ Redis（运行时状态 + pub/sub + 锁）
 ```
 
-### 9.2 游戏逻辑模块化
+设置 `REDIS_URL` 即启用多实例模式，并强制 `STORE_BACKEND=redis`（否则启动 fail-fast）：
+
+- **跨实例广播**：Socket.IO 接 `@socket.io/redis-adapter`，房间广播触达所有实例的客户端。
+- **调度归属（scheduler-owner）**：每房间的回合计时器与 AI 决策由抢到 `poker:lock:room:{roomId}`（30s TTL，Lua 原子抢/续锁）的实例独占；其他实例通过 `poker:sched` 频道通知 owner。owner 宕机后锁到期，下一个调度点由存活实例接管（倒计时按完整时长重建，已接受的简化语义）。断线保留计时器（60s）始终归连接所在实例。
+- **写透持久化（P5c）**：room-manager/game-engine 每个变更路径显式写回存储，任意实例重读即得最新状态；进程重启（Redis 未重启）后房间可恢复。
+- **故障语义**：启动时 Redis 不可达直接失败；运行期中断则无限退避重连，恢复后自愈。
+
+已知边界：AI 回合活性依赖调度点接管；跨实例动作互斥未覆盖（依赖 nginx 粘性会话收敛）。
+
+### 9.2 存储层可替换（已实现）
+
+```typescript
+// backend/storage/index.ts — 按 STORE_BACKEND 装配：
+// memory（默认，零依赖）/ postgres（用户+历史）/ redis（运行时状态）
+// 三实现同一契约，调用方零改动；契约测试对三实现全部运行
+```
+
+### 9.3 游戏逻辑模块化
 
 - `GameEngine` 不依赖具体 UI，任何 Poker 变体可继承或替换
 - `HandEvaluator` 纯函数，可被任何模式复用
 - `PotManager` 独立于具体游戏类型，适用于任何下注类游戏
 
-### 9.3 AI 策略可插拔
+### 9.4 AI 策略可插拔
 
-```javascript
-// 当前：RuleBasedAI（基于规则）
-// 未来：MLBasedAI（机器学习）
-// 只需替换 AIManager 内部实现，接口不变
+```typescript
+// 当前：LLM（OpenAI-compatible）优先，ai-rule-engine 规则降级
+// ai-manager 路由决策，接口不变，可替换为任意策略实现
 ```
 
 ---
 
-## 10. MVP 阶段取舍
+## 10. 当前能力与边界
 
-| 范围 | 包含 | 不包含 |
+| 范围 | 已实现 | 未实现/后续 |
 |------|------|--------|
-| 用户系统 | 游客模式（自动生成昵称） | 注册/登录、JWT、密码加密 |
-| 房间系统 | 创建、加入、公开/私密、AI填充 | 历史记录、回放 |
-| 游戏系统 | 完整德州扑克规则、底池、边池 |  tournaments、多桌 |
-| 实时通信 | WebSocket、断线重连 | WSS (TLS)（开发环境用 WS） |
-| 前端 | 大厅、房间、牌桌 | 移动端适配、聊天、排行榜 |
-| 部署 | Node.js 直接运行 | Docker、Nginx、水平扩展 |
-| AI | 基于规则的简单策略 | 机器学习、复杂策略 |
+| 用户系统 | 游客模式 + 注册/登录（JWT + bcrypt） | 第三方登录、找回密码 |
+| 房间系统 | 创建、加入、公开/私密、AI 填充、借筹码、离房结算 | 回放 |
+| 游戏系统 | 完整德州扑克规则、底池、边池、牌局历史入库（postgres） | tournaments、多桌 |
+| 实时通信 | WebSocket、断线重连、跨实例广播 | — |
+| 前端 | Vue 3 新前端（手机竖屏 + 桌面宽屏、GSAP 动画三档降级）、聊天 | 排行榜 |
+| 部署 | Docker Compose 多实例、CI、nginx 粘性代理、健康检查 | 自动扩缩容 |
+| AI | LLM 决策 + 规则降级、风格化、决策日志 | 机器学习策略 |
 
 ---
 

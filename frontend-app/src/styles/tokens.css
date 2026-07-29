@@ -1,0 +1,64 @@
+/**
+ * Design tokens for the classic casino theme.
+ * Felt greens + gold accents, serif display type for headings.
+ * Consumed by global styles and vant-theme.css.
+ */
+
+:root {
+  /* ── Felt greens ─────────────────────────────────────────── */
+  --casino-green: #1e6b4f;        /* primary felt green */
+  --casino-green-deep: #0d3b2b;   /* deep green for panels/dialogs */
+  --casino-felt-bg: #123528;      /* page background */
+  --casino-green-light: #2a8a66;  /* hover / highlight green */
+
+  /* ── Gold accents ────────────────────────────────────────── */
+  --casino-gold: #d4af37;         /* primary gold */
+  --casino-gold-deep: #8a6d3b;    /* antique gold, borders on dark */
+  --casino-gold-light: #f1d675;   /* highlight gold */
+
+  /* ── Neutrals ────────────────────────────────────────────── */
+  --casino-ivory: #f5f0e1;        /* main text on felt */
+  --casino-ivory-dim: #c8c0a8;    /* secondary text */
+  --casino-ink: #141810;          /* text on gold buttons */
+  --casino-danger: #c0392b;       /* destructive actions */
+  --casino-card-white: #fdfcf7;   /* card face background */
+
+  /* ── Typography ──────────────────────────────────────────── */
+  --casino-font-title: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  --casino-font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  --casino-font-size-xs: 12px;
+  --casino-font-size-sm: 14px;
+  --casino-font-size-md: 16px;
+  --casino-font-size-lg: 20px;
+  --casino-font-size-xl: 28px;
+
+  /* ── Radius scale ────────────────────────────────────────── */
+  --casino-radius-sm: 4px;
+  --casino-radius-md: 8px;
+  --casino-radius-lg: 16px;
+  --casino-radius-pill: 999px;
+
+  /* ── Shadow scale ────────────────────────────────────────── */
+  --casino-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --casino-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --casino-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --casino-shadow-gold: 0 2px 10px rgba(212, 175, 55, 0.35);
+
+  /* ── Spacing scale (4px base) ────────────────────────────── */
+  --casino-space-1: 4px;
+  --casino-space-2: 8px;
+  --casino-space-3: 12px;
+  --casino-space-4: 16px;
+  --casino-space-5: 24px;
+  --casino-space-6: 32px;
+  --casino-space-7: 48px;
+  --casino-space-8: 64px;
+
+  /* ── Z-index scale ───────────────────────────────────────── */
+  --casino-z-table: 0;
+  --casino-z-seats: 10;
+  --casino-z-overlay: 100;
+  --casino-z-toast: 1000;
+}

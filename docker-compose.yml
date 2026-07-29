@@ -1,17 +1,96 @@
 version: '3.8'
 
+# Production topology: nginx (sticky reverse proxy) → app × 2 → postgres/redis.
+# Variable substitution picks up a .env file placed next to this file
+# (compose loads it automatically); every value has a dev-safe default.
+
 services:
-  texas-poker:
+  app:
     build: .
-    container_name: texas-poker
     restart: unless-stopped
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
+    deploy:
+      replicas: 2
+    environment:
+      NODE_ENV: production
+      # Multi-instance mode: redis store + redis adapter/scheduler (P5a).
+      STORE_BACKEND: redis
+      DATABASE_URL: postgres://${POSTGRES_USER:-poker}:${POSTGRES_PASSWORD:-poker}@postgres:5432/${POSTGRES_DB:-poker}
+      REDIS_URL: redis://redis:6379
+      # Placeholder only — set a strong secret in .env for real deployments.
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Runtime image serves the built Vue SPA from this directory.
+      FRONTEND_DIR: frontend-app/dist
+      AI_PROVIDER: ${AI_PROVIDER:-openai-compatible}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      # AI tuning + rate limiting: pass through so .env values reach the
+      # container (unlisted vars would silently fall back to code defaults).
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-10000}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.4}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
+      AI_FALLBACK_ENABLED: ${AI_FALLBACK_ENABLED:-true}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      # service_started (not healthy): nginx resolves the `app` DNS name at
+      # startup, so the app containers only need to exist, not be healthy.
+      app:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: texas-poker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-poker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-poker}
+      POSTGRES_DB: ${POSTGRES_DB:-poker}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: texas-poker-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
