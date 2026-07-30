@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { GamePlayer, GameState, RoomState } from '@/types'
-import { useGameStore } from '@/stores/game'
+import { MAX_HAND_HISTORY, useGameStore } from '@/stores/game'
 import { usePlayerStore } from '@/stores/player'
 import { useRoomStore } from '@/stores/room'
 
@@ -223,6 +223,103 @@ describe('hand sequence: community/action/pot/showdown/ended', () => {
     expect(game.nextHandDelay).toBe(5000)
     expect(game.currentPosition).toBeNull()
     expect(game.validActions).toEqual([])
+  })
+})
+
+describe('handHistory accumulation (records drawer)', () => {
+  function endHand(game: ReturnType<typeof useGameStore>, gameId: string): void {
+    game.handleGameShowdown({
+      results: [
+        {
+          playerId: 'me',
+          position: 3,
+          nickname: 'Me',
+          cards: ['A♠', 'K♥'],
+          handName: '高牌',
+          isWinner: true,
+        },
+      ],
+    })
+    game.handleGameEnded({
+      winners: [
+        { playerId: 'me', position: 3, nickname: 'Me', amount: 130, payout: 130, hand: '高牌' },
+      ],
+      handResults: [
+        {
+          playerId: 'me',
+          position: 3,
+          nickname: 'Me',
+          chips: 1110,
+          startingChips: 1000,
+          delta: 110,
+          isWinner: true,
+        },
+      ],
+      nextHandDelay: 5000,
+    })
+    // Emulate the next hand starting, which clears the live fields.
+    game.gameId = gameId
+  }
+
+  it('game:ended appends a snapshot with showdown, results and winners', () => {
+    const game = useGameStore()
+    game.handleGameState(makeGameState())
+    endHand(game, 'room1')
+
+    expect(game.handHistory).toHaveLength(1)
+    expect(game.handHistory[0].showdown).toHaveLength(1)
+    expect(game.handHistory[0].results[0].delta).toBe(110)
+    expect(game.handHistory[0].winners[0].amount).toBe(130)
+    expect(typeof game.handHistory[0].endedAt).toBe('number')
+  })
+
+  it('history survives the next hand start (which clears live fields)', () => {
+    const game = useGameStore()
+    game.handleGameState(makeGameState())
+    endHand(game, 'room1')
+
+    game.handleGameStarted({ gameId: 'room1', dealer: 4, sb: 5, bb: 6 })
+
+    expect(game.showdownResults).toEqual([])
+    expect(game.handResults).toBeNull()
+    expect(game.handHistory).toHaveLength(1)
+  })
+
+  it('keeps most-recent-first order and caps at MAX_HAND_HISTORY', () => {
+    const game = useGameStore()
+    for (let i = 0; i < MAX_HAND_HISTORY + 5; i += 1) {
+      game.handleGameState(makeGameState())
+      game.handleGameShowdown({ results: [] })
+      game.handleGameEnded({
+        winners: [],
+        handResults: [
+          {
+            playerId: 'me',
+            position: 3,
+            nickname: 'Me',
+            chips: 1000 + i,
+            startingChips: 1000,
+            delta: i,
+            isWinner: false,
+          },
+        ],
+        nextHandDelay: 0,
+      })
+    }
+
+    expect(game.handHistory).toHaveLength(MAX_HAND_HISTORY)
+    // Newest first: the last-ended hand (delta = MAX + 4) leads the list.
+    expect(game.handHistory[0].results[0].delta).toBe(MAX_HAND_HISTORY + 4)
+  })
+
+  it('resetGame clears the accumulated history', () => {
+    const game = useGameStore()
+    game.handleGameState(makeGameState())
+    endHand(game, 'room1')
+    expect(game.handHistory).toHaveLength(1)
+
+    game.resetGame()
+    expect(game.handHistory).toEqual([])
   })
 })
 

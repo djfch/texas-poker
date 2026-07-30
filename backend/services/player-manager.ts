@@ -155,13 +155,23 @@ class PlayerManager {
 
     player.nickname = cleanNickname;
     player.lastActive = Date.now();
+    // Write the record back through the storage contract. Copy-returning
+    // backends (postgres/redis) hand out detached objects, so mutating the
+    // fetched record alone is silently dropped and a later joinRoom() reads
+    // the stale nickname. Memory shares the live ref, so this is a no-op
+    // there. Mirrors room-manager's _persistPlayer/_persistRoom pattern.
+    await store.updatePlayer(playerId, {
+      nickname: cleanNickname,
+      lastActive: player.lastActive,
+    });
 
     let roomId: string | null = player.currentRoom || null;
     if (roomId) {
       const room = await store.getRoom(roomId);
       const roomPlayer = room?.players?.find((p: any) => p.playerId === playerId);
-      if (roomPlayer) {
+      if (room && roomPlayer) {
         roomPlayer.nickname = cleanNickname;
+        await store.updateRoom(room.id, room);
       }
     }
 
@@ -171,6 +181,7 @@ class PlayerManager {
         if (roomPlayer) {
           roomPlayer.nickname = cleanNickname;
           roomId = room.id;
+          await store.updateRoom(room.id, room);
           break;
         }
       }
@@ -179,8 +190,9 @@ class PlayerManager {
     if (roomId) {
       const game = await store.getGame(roomId);
       const gamePlayer = game?.players?.find((p: any) => p.playerId === playerId);
-      if (gamePlayer) {
+      if (game && gamePlayer) {
         gamePlayer.nickname = cleanNickname;
+        await store.updateGame(roomId, game);
       }
     }
 

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
  * HistoryDrawer.vue - Right-side hand history drawer (Vant Popup).
- * The game store keeps no per-action log, so the drawer shows the latest
- * hand's showdown reveals (cards + hand names) and settlement deltas, as
- * the task allows. Store-driven like ActionBar.
+ * Renders the client-accumulated finished-hand log (game store handHistory,
+ * most-recent-first): each hand's showdown reveals (cards + hand names) and
+ * settlement deltas. Unlike the live showdown/handResults fields, this log
+ * survives the next hand start, so the drawer keeps content mid-game.
  */
 import { computed } from 'vue'
-import type { HandResultEntry } from '@/types'
+import type { HandResultEntry, ShowdownEntry } from '@/types'
 import { useGameStore } from '@/stores/game'
 
 defineProps<{
@@ -28,9 +29,17 @@ function resultName(r: HandResultEntry): string {
   return r.nickname || `座位 ${r.position + 1}`
 }
 
-const hasRecords = computed(
-  () => gameStore.showdownResults.length > 0 || (gameStore.handResults?.length ?? 0) > 0,
-)
+function showdownName(r: ShowdownEntry): string {
+  return 'nickname' in r && r.nickname ? r.nickname : `座位 ${r.position + 1}`
+}
+
+function formatTime(ts: number): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const d = new Date(ts)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+const hasRecords = computed(() => gameStore.handHistory.length > 0)
 </script>
 
 <template>
@@ -44,31 +53,40 @@ const hasRecords = computed(
       <div class="history-title">牌局记录</div>
 
       <template v-if="hasRecords">
-        <div v-if="gameStore.showdownResults.length" class="history-section">
-          <div class="section-title">摊牌</div>
-          <div
-            v-for="(r, i) in gameStore.showdownResults"
-            :key="i"
-            class="history-row"
-          >
-            <span class="row-name">
-              {{ 'nickname' in r && r.nickname ? r.nickname : `座位 ${r.position + 1}` }}
-            </span>
-            <span class="row-cards">{{ r.cards.join(' ') }}</span>
-            <span v-if="r.handName" class="row-hand">{{ r.handName }}</span>
+        <div
+          v-for="(hand, hi) in gameStore.handHistory"
+          :key="hand.gameId ? `${hand.gameId}-${hi}` : hi"
+          class="history-hand"
+        >
+          <div class="hand-header">
+            <span class="hand-label">#{{ hi + 1 }}</span>
+            <span class="hand-time">{{ formatTime(hand.endedAt) }}</span>
           </div>
-        </div>
 
-        <div v-if="gameStore.handResults?.length" class="history-section">
-          <div class="section-title">结算</div>
-          <div v-for="r in gameStore.handResults" :key="r.playerId" class="history-row">
-            <span class="row-name">{{ resultName(r) }}</span>
-            <span
-              class="row-delta"
-              :class="r.delta >= 0 ? 'delta-positive' : 'delta-negative'"
+          <div v-if="hand.showdown.length" class="history-section">
+            <div class="section-title">摊牌</div>
+            <div
+              v-for="(r, i) in hand.showdown"
+              :key="i"
+              class="history-row"
             >
-              {{ formatSigned(r.delta) }}
-            </span>
+              <span class="row-name">{{ showdownName(r) }}</span>
+              <span class="row-cards">{{ r.cards.join(' ') }}</span>
+              <span v-if="r.handName" class="row-hand">{{ r.handName }}</span>
+            </div>
+          </div>
+
+          <div v-if="hand.results.length" class="history-section">
+            <div class="section-title">结算</div>
+            <div v-for="r in hand.results" :key="r.playerId" class="history-row">
+              <span class="row-name">{{ resultName(r) }}</span>
+              <span
+                class="row-delta"
+                :class="r.delta >= 0 ? 'delta-positive' : 'delta-negative'"
+              >
+                {{ formatSigned(r.delta) }}
+              </span>
+            </div>
           </div>
         </div>
       </template>
@@ -94,6 +112,30 @@ const hasRecords = computed(
   font-size: var(--casino-font-size-lg);
   color: var(--casino-gold);
   margin-bottom: var(--casino-space-4);
+}
+
+.history-hand {
+  margin-bottom: var(--casino-space-4);
+  padding-bottom: var(--casino-space-2);
+  border-bottom: 1px solid rgba(245, 240, 225, 0.08);
+}
+
+.hand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--casino-space-2);
+}
+
+.hand-label {
+  color: var(--casino-gold-light);
+  font-weight: 700;
+  font-size: var(--casino-font-size-sm);
+}
+
+.hand-time {
+  color: var(--casino-ivory-dim);
+  font-size: var(--casino-font-size-xs);
 }
 
 .history-section {
