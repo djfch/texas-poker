@@ -75,9 +75,27 @@ interface GameStoreState {
   handResults: HandResultEntry[] | null
   nextHandDelay: number | null
   lastAction: GameActionNotifyPayload | null
+  /**
+   * Recent finished hands, most-recent-first, capped at MAX_HAND_HISTORY.
+   * Accumulated on game:ended so the history drawer keeps content across the
+   * next hand start (which clears the live showdown/handResults fields).
+   */
+  handHistory: HandHistoryRecord[]
 }
 
 const EMPTY_POTS: PotBreakdown = { mainPot: 0, sidePots: [] }
+
+/** Max number of finished hands retained client-side for the history drawer. */
+export const MAX_HAND_HISTORY = 20
+
+/** One finished-hand snapshot shown in the history drawer. */
+export interface HandHistoryRecord {
+  gameId: string | null
+  endedAt: number
+  showdown: ShowdownEntry[]
+  results: HandResultEntry[]
+  winners: WinnerInfo[]
+}
 
 export const useGameStore = defineStore('game', {
   state: (): GameStoreState => ({
@@ -104,6 +122,7 @@ export const useGameStore = defineStore('game', {
     handResults: null,
     nextHandDelay: null,
     lastAction: null,
+    handHistory: [],
   }),
 
   getters: {
@@ -150,6 +169,7 @@ export const useGameStore = defineStore('game', {
       this.handResults = null
       this.nextHandDelay = null
       this.lastAction = null
+      this.handHistory = []
     },
 
     /**
@@ -264,14 +284,28 @@ export const useGameStore = defineStore('game', {
 
     /** game:ended — hand over; winners and per-player deltas. */
     handleGameEnded(data: GameEndedPayload): void {
-      this.winners = data.winners ?? []
-      this.handResults = data.handResults ?? []
+      const winners = data.winners ?? []
+      const results = data.handResults ?? []
+      this.winners = winners
+      this.handResults = results
       this.nextHandDelay = data.nextHandDelay ?? null
       this.status = 'ended'
       this.validActions = []
       this.currentPosition = null
       this.currentPlayerId = null
       this.turnTimeoutAt = null
+      // Snapshot the finished hand so the history drawer keeps content once
+      // the next game:started clears the live showdown/handResults fields.
+      this.handHistory.unshift({
+        gameId: this.gameId,
+        endedAt: Date.now(),
+        showdown: [...this.showdownResults],
+        results,
+        winners,
+      })
+      if (this.handHistory.length > MAX_HAND_HISTORY) {
+        this.handHistory.length = MAX_HAND_HISTORY
+      }
     },
 
     /**
