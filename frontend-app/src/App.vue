@@ -50,4 +50,39 @@ body {
 #app {
   min-height: 100vh;
 }
+
+/* ── Themed scrollbars (casino gold on translucent dark) ──────────
+   Applied globally so every scrollable surface (drawers, overlays,
+   lobby list, dialogs) matches the felt-and-gold theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--casino-gold-deep) rgba(0, 0, 0, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--casino-radius-pill);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--casino-gold-deep);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--casino-radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--casino-gold);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 </style>

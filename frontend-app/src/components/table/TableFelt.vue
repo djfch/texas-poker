@@ -23,6 +23,7 @@ import HandResultOverlay from '@/components/table/HandResultOverlay.vue'
 import PokerCard from '@/components/table/PokerCard.vue'
 import { useTableAnimations } from '@/animations/useTableAnimations'
 import { useTableSounds } from '@/audio/useTableSounds'
+import { useNextHandAction } from '@/composables/useNextHandAction'
 
 const emit = defineEmits<{
   sit: [position: number]
@@ -158,25 +159,9 @@ watch(
 )
 const showEndedOverlay = computed(() => gameStore.status === 'ended' && !overlayDismissed.value)
 
-/** Legacy updateNextHandActionButton rules. */
-const nextHandState = computed(() => {
-  const seat = myRoomSeat.value
-  const usable = Boolean(
-    seat && room.value?.status !== 'playing' && room.value?.awaitingNextHandReady,
-  )
-  if (!usable || !seat) return { show: false, label: '', disabled: true, title: '' }
-  const chips = Number(seat.chips) || 0
-  const isReady = Boolean(seat.isReady)
-  return {
-    show: true,
-    disabled: chips > 0 && isReady,
-    label: chips <= 0 ? '借筹码' : isReady ? '已准备' : '准备',
-    title:
-      chips <= 0
-        ? `每次借初始筹码 ¥${(room.value?.initialChips ?? 0).toLocaleString()}`
-        : '所有玩家准备后自动开始下一局',
-  }
-})
+// Shared with the persistent footer button in TableView so dismissing the
+// overlay never strands the player without a ready/borrow path.
+const nextHandState = useNextHandAction()
 </script>
 
 <template>

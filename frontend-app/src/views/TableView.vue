@@ -33,6 +33,7 @@ import HoleCards from '@/components/table/HoleCards.vue'
 import ActionBar from '@/components/table/ActionBar.vue'
 import HistoryDrawer from '@/components/table/HistoryDrawer.vue'
 import SettlementDialog from '@/components/room/SettlementDialog.vue'
+import { useNextHandAction } from '@/composables/useNextHandAction'
 
 const route = useRoute()
 const router = useRouter()
@@ -89,6 +90,10 @@ const myChips = computed(() => gameStore.me?.chips ?? myRoomSeat.value?.chips ??
 const myNickname = computed(
   () => myRoomSeat.value?.nickname || gameStore.me?.nickname || playerStore.nickname || '我',
 )
+
+// Persistent 准备/借筹码 control: mirrors the hand-end overlay button so a
+// dismissed (收起) overlay never blocks readying up for the next hand.
+const nextHandState = useNextHandAction()
 
 // ─── Actions (all through the typed socket service) ────────────────
 
@@ -181,6 +186,18 @@ function onSettlementConfirm(): void {
       <div class="my-hole-cards" data-my-hole-cards>
         <HoleCards :cards="gameStore.myHoleCards" />
       </div>
+      <div v-if="nextHandState.show" class="next-hand-action">
+        <van-button
+          size="small"
+          type="primary"
+          :disabled="nextHandState.disabled"
+          :title="nextHandState.title"
+          data-testid="btn-next-hand-bar"
+          @click="onNextHand"
+        >
+          {{ nextHandState.label }}
+        </van-button>
+      </div>
       <div class="my-info">
         <span class="my-nickname">{{ myNickname }}</span>
         <span class="my-chips">¥{{ myChips.toLocaleString() }}</span>
@@ -257,6 +274,13 @@ function onSettlementConfirm(): void {
   background: rgba(0, 0, 0, 0.4);
   border-top: 1px solid rgba(245, 240, 225, 0.06);
   flex-shrink: 0;
+}
+
+.next-hand-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
 }
 
 .my-info {
